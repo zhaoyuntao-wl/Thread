@@ -391,6 +391,15 @@ export class ThreadStore {
       .get(sessionId) as Decision | undefined;
   }
 
+  getDecisions(sessionId: string, status?: DecisionStatus): Decision[] {
+    if (status) {
+      return this.db
+        .prepare(`SELECT * FROM decisions WHERE session_id = ? AND status = ? ORDER BY id`)
+        .all(sessionId, status) as Decision[];
+    }
+    return this.db.prepare(`SELECT * FROM decisions WHERE session_id = ? ORDER BY id`).all(sessionId) as Decision[];
+  }
+
   addLineageEdge(
     sessionId: string,
     srcType: string,

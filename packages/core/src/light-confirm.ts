@@ -58,7 +58,7 @@ const DECLARE_RE = [
   /(?:决定采用|方案定为|就采用|决定|确定)[：:，,\s]*([^。！!？?]+)/,
 ];
 
-const GOAL_RE = /^(?:帮我|请|实现|修复|重构|添加|新增|完成|构建|创建|删除|优化|升级|接入|验证|设计|规划|开发|搭建)/;
+const GOAL_RE = /^(?:帮我|请|再帮我|然后帮我|接着帮我|帮我再|还要帮我|麻烦帮我|实现|修复|重构|添加|新增|完成|构建|创建|删除|优化|升级|接入|验证|设计|规划|开发|搭建)/;
 
 const PREFERENCE_RE = /(?:以后|下次|永远|总是|记得|优先|别再|不要再)/;
 
@@ -122,31 +122,56 @@ export function applyTurn(
 ): AppliedTurn {
   const analysis = analyzeTurn(input);
   const applied: AppliedTurn = { goals: [], decisions: [], feedback: [] };
+  const ts = opts.ts ?? new Date().toISOString();
 
+  let sourceEvent = opts.sourceEvent;
+  const userMsg = (input.user_msg ?? "").trim();
+  const assistantMsg = (input.assistant_msg ?? "").trim();
+  if (userMsg) {
+    const ev = store.append({
+      session_id: sessionId,
+      kind: "user_message",
+      ts,
+      body: userMsg,
+      meta: { transcript_path: undefined },
+    });
+    sourceEvent ??= ev.id;
+  }
+  if (assistantMsg) {
+    const ev = store.append({
+      session_id: sessionId,
+      kind: "assistant_message",
+      ts,
+      body: assistantMsg,
+    });
+    sourceEvent ??= ev.id;
+  }
+
+  const structuredOpts = { sourceEvent, ts };
   for (const g of analysis.goals) {
-    applied.goals.push(store.addGoal(sessionId, g.text, opts));
+    applied.goals.push(store.addGoal(sessionId, g.text, structuredOpts));
   }
   for (const d of analysis.decisions) {
     switch (d.action) {
       case "propose":
-        applied.decisions.push(store.proposeDecision(sessionId, d.text, opts));
+        applied.decisions.push(store.proposeDecision(sessionId, d.text, structuredOpts));
         break;
       case "confirm": {
-        const confirmed = store.confirmLatestProposed(sessionId, opts);
+        const confirmed = store.confirmLatestProposed(sessionId, { ts });
         if (confirmed) {
           applied.decisions.push(confirmed);
         }
         break;
       }
       case "revoke": {
-        const revoked = store.revokeLatestActive(sessionId, opts);
+        const revoked = store.revokeLatestActive(sessionId, { ts });
         if (revoked) {
           applied.decisions.push(revoked);
         }
         break;
       }
       case "supersede": {
-        const result = store.supersedeLatestActive(sessionId, d.text, opts);
+        const result = store.supersedeLatestActive(sessionId, d.text, structuredOpts);
         if (result) {
           applied.decisions.push(result.superseded, result.replacement);
         }
@@ -155,7 +180,7 @@ export function applyTurn(
     }
   }
   for (const f of analysis.feedback) {
-    applied.feedback.push(store.addFeedback(sessionId, f.text, f.kind, opts));
+    applied.feedback.push(store.addFeedback(sessionId, f.text, f.kind, structuredOpts));
   }
 
   return applied;
