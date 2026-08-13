@@ -85,6 +85,13 @@ describe("analyzeTurn", () => {
     expect(analyzeTurn({ assistant_msg: "我们还在讨论中" }).decisions).toEqual([]);
   });
 
+  it("does not declare decisions from questions or technical terms", () => {
+    expect(analyzeTurn({ assistant_msg: "要我记下这个决策吗？" }).decisions).toEqual([]);
+    expect(analyzeTurn({ assistant_msg: "写入确定性摘要，degraded 可达" }).decisions).toEqual([]);
+    expect(analyzeTurn({ assistant_msg: "怎么确定当前是哪个项目？" }).decisions).toEqual([]);
+    expect(analyzeTurn({ assistant_msg: "这是一个决定性的因素" }).decisions).toEqual([]);
+  });
+
   it("does not treat questions as goals", () => {
     expect(analyzeTurn({ user_msg: "请问登录怎么做" }).goals).toEqual([]);
     expect(analyzeTurn({ user_msg: "帮我查一下这个错误" }).goals).toEqual([]);

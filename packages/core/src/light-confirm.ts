@@ -55,7 +55,7 @@ const REVOKE_RE = /(?:算了|撤销|放弃|不要(?:用|做|要)?了|不要用|�
 
 const DECLARE_RE = [
   /(?<![忘标登])(?:我|我们)?(?:已|已经)?记下(?:了)?[：:，,\s]*([^。！!？?]+)/,
-  /(?<![不未])(?:我|我们)?(?:决定采用|方案定为|就采用|决定|确定)[：:，,\s]*([^。！!？?]+)/,
+  /(?<![不未怎何否该么能])(?:我|我们)?(?:决定采用|方案定为|就采用|决定(?!性)|确定(?!性))[：:，,\s]*([^。！!？?]+)/,
 ];
 
 const GOAL_RE = /^(?:帮我|请|再帮我|然后帮我|接着帮我|帮我再|还要帮我|麻烦帮我)?(?:实现|修复|重构|添加|新增|完成|构建|创建|删除|优化|升级|接入|验证|设计|规划|开发|搭建|编写|整理|部署|迁移|拆分|合并|安装|配置|生成)/;
@@ -101,7 +101,10 @@ export function analyzeTurn(input: TurnInput): TurnAnalysis {
     for (const re of DECLARE_RE) {
       const m = assistantRaw.match(re);
       if (m && m[1]?.trim()) {
-        analysis.decisions.push({ action: "propose", text: m[1].trim().slice(0, MAX_DECISION_TEXT) });
+        const text = m[1].trim().slice(0, MAX_DECISION_TEXT);
+        if (!/[吗呢吧]$/.test(text)) {
+          analysis.decisions.push({ action: "propose", text });
+        }
         break;
       }
     }
