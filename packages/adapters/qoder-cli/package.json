@@ -1,0 +1,27 @@
+{
+  "name": "@thread/adapter-qoder-cli",
+  "version": "0.0.0",
+  "description": "Thread adapter for Qoder CLI: hooks ingestion, context injection, MCP query tool",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@thread/core": "workspace:*",
+    "zod": "^4.4.3"
+  }
+}

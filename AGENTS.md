@@ -1,0 +1,43 @@
+# AGENTS.md — Thread 项目指南（AI 编码工作流）
+
+## 项目是什么
+
+Thread：编码 Agent 的会话记忆层（*Session memory with lineage for coding agents*），底座无关。
+核心价值：长任务上下文保真——决策不丢、目标不漂移、不重复提问。事件流水无损存储 + 按需检索，关键路径（目标 + 情节状态）O(1) 常驻。
+
+**动手前必读**：[session-memory-system-design.md](./session-memory-system-design.md)——需求与架构权威文档（已确认）。实现与设计不一致时，先改设计文档再改代码。
+
+## 技术栈与结构
+
+- TypeScript（strict / ESM / NodeNext）、Node >= 20、pnpm monorepo
+- `packages/core`：事件流水、结构化表（目标/决策/反馈）、血缘图、BM25 检索
+- `packages/adapters/qoder-cli`：第一参考适配器（hooks 采集 / 上下文注入 / MCP query 工具）
+- `packages/evals`：回归集（长任务场景、事实保留率检查）
+- 底座：Qoder CLI（狗粮）；Codewhale（Hmbown/CodeWhale）= 第二候选，能力未验证
+
+## 常用命令
+
+```sh
+pnpm install       # 安装依赖
+pnpm typecheck     # build + 类型检查（全部包）
+pnpm lint          # eslint
+pnpm test          # vitest
+pnpm build         # 编译全部包（core 先构建，依赖拓扑自动排序）
+pnpm changeset     # 用户可见变更需生成 changeset
+```
+
+## 代码约定
+
+- strict 模式、ESM 专用（NodeNext 解析）；`dist` 是构建产物，源码在 `src`。
+- 不写注释，除非 WHY 非显而易见。
+- 测试放源码旁：`src/**/*.test.ts`。
+- 用户可见变更必须附带 changeset。
+- 提交前跑完整验证链：`pnpm typecheck && pnpm lint && pnpm test`。
+
+## 工作流约定
+
+1. 以设计文档为准：改动涉及架构/接口时，先更新设计文档再实现。
+2. 旁路增强（语义抽取、本地小模型、轻确认模型化）属于二期；MVP 只做确定性实现，绝不阻塞主路径。
+3. 事件流写入必须"写时即建索引"；任何旁路处理可失败可重试，不得阻塞对话主路径。
+4. 存储选型已定方向：SQLite（better-sqlite3）+ FTS5 BM25；`session_id` 从第一天带上。
+5. Agent 本地配置（`.qoder/`、`.claude/` 等）不入库；项目级规则统一维护在本文件与设计文档中。
