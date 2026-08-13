@@ -92,6 +92,20 @@ describe("analyzeTurn", () => {
     expect(analyzeTurn({ assistant_msg: "这是一个决定性的因素" }).decisions).toEqual([]);
   });
 
+  it("requires first-person subject for bare 决定/确定", () => {
+    expect(analyzeTurn({ assistant_msg: "产出直接决定 B/C 怎么做" }).decisions).toEqual([]);
+    expect(analyzeTurn({ assistant_msg: "调研结论确定下一步" }).decisions).toEqual([]);
+    expect(analyzeTurn({ assistant_msg: "我确定用 Vite" }).decisions).toEqual([
+      { action: "propose", text: "用 Vite" },
+    ]);
+    expect(analyzeTurn({ assistant_msg: "我们已经决定用 pnpm" }).decisions).toEqual([
+      { action: "propose", text: "用 pnpm" },
+    ]);
+    expect(analyzeTurn({ assistant_msg: "我决定采用 Vite 构建" }).decisions).toEqual([
+      { action: "propose", text: "Vite 构建" },
+    ]);
+  });
+
   it("does not treat questions as goals", () => {
     expect(analyzeTurn({ user_msg: "请问登录怎么做" }).goals).toEqual([]);
     expect(analyzeTurn({ user_msg: "帮我查一下这个错误" }).goals).toEqual([]);
