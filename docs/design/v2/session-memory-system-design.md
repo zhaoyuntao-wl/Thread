@@ -8,17 +8,17 @@
 
 批次按依赖排序：**A（前置调研）→ B（记忆层能力）→ C（智能增强）**，里程碑 + 验收标准粒度，不排具体日期。
 
-### 批 A：前置调研（约 0.5~1 天）
+### 批 A：前置调研（约 0.5~1 天，**已完成 2026-08-14**，结论见 §2）
 
-- 底座侧上下文裁剪能力调研：Qoder CLI 的 auto-compact 行为、能否触发/控制、历史截断 / resume 能力 → 关闭 §2"底座侧上下文裁剪接入点"
-- 本地旁路模型选型（桌面调研）：轻确认分类器、语义抽取小 LLM、embedding、reranker 的具体模型 + 内存/延迟预算 → 关闭 §2"旁路模型选型"（实测下载放批 C 前）
-- 验收：§2 两条开放问题从"待定"变为"已决"
+- 底座侧上下文裁剪能力调研：Qoder CLI 的 auto-compact 行为、能否触发/控制、历史截断 / resume 能力 → 已决：PreCompact/PostCompact hooks 可用，底座可控路径成立
+- 本地旁路模型选型（桌面调研）：轻确认分类器、语义抽取小 LLM、embedding、reranker 的具体模型 + 内存/延迟预算 → 已决：选型表见 §2（实测下载放批 C 前）
+- 验收：§2 两条开放问题从"待定"变为"已决" ✅
 
 ### 批 B：记忆层能力（约 3~5 天）
 
 按序推进，① 优先级最高：
 
-1. **上下文裁剪接入（O(1) 落地）**：方案由批 A 结论决定——底座可控制 → 实现"预算前主动裁剪 + 状态卡保底 + 检索拉回"闭环；底座不可控 → 落替代路径（如"定期开新会话 + 继承兜底"的 O(1) 变体）并记录差距。验收：① 长会话实测 ctx 有界（或替代路径生效）——每轮上下文长度序列从 transcript usage 提取，确定性可量化；② 同任务 token 消耗对比——脚本化回归场景（固定任务）裁剪接入前后各跑 N 次取中位数对比总 token，模型输出非确定，故作为趋势性佐证而非精确值
+1. **上下文裁剪接入（O(1) 落地）**：方案已由批 A 定案（底座可控路径成立）——实现 = 挂 PreCompact/PostCompact hook：PreCompact 时状态卡落库防丢，PostCompact 后经 hookSpecificOutput 重新注入状态卡，细节靠检索拉回；辅以 `model.maxSessionTurns` / `contextWindow` 阈值定制。验收：① 长会话实测 ctx 有界——每轮上下文长度序列从 transcript usage 提取，确定性可量化；② 同任务 token 消耗对比——脚本化回归场景（固定任务）裁剪接入前后各跑 N 次取中位数对比总 token，模型输出非确定，故作为趋势性佐证而非精确值
 2. §3 作用域与命名空间全量落地：用户级结构化库 + 按项目键分事件库、项目键推导、查询合并（project+global）、状态卡合并显示、非当前项目硬过滤
 3. 跨会话自动继承（轻量版）：新会话开场注入上一项目会话的 active 决策 / 全局反馈（最近 N 条），复杂跨会话检索策略等线上度量数据后再调
 4. 现网串库修复 + 一次性迁移脚本（现网 `.thread/sms.db` → 新结构，数据无损）
@@ -54,13 +54,34 @@
 
 ## 2. 开放问题（实现前需定）
 
-- 旁路模型具体选型（便宜/快，哪个 provider）
 - 状态卡的确切内容与 token 预算
 - 情节分组的规则细节（边界情况）
 - 检索重排策略（打分公式）
 - 写入管线的存储格式（SQLite / 嵌入式 KV / 文件 + 索引）
 - 多会话（跨天/跨项目）的隔离与命名空间——作用域设计已确认（见 §3，二期实施）；当前实现 DB 路径由脚本所在仓库推导，所有项目串库、仅 `session_id` 区分；迁移路径（现网单库 → 用户级库 + 项目库）待定。
-- **底座侧上下文裁剪接入点**（历史截断 / compact 触发 / 恢复钩子）——O(1) 有界上下文目标的前置依赖，不在已验证三弱能力清单内；需调研 Qoder CLI 的 auto-compact 行为与可控性。MVP 不承诺 ctx 下降，只承诺关键信息不丢 + 可恢复（状态卡常驻 + 检索按需拉回）。
+
+### 批 A 调研结论（已决，2026-08-14）
+
+**底座上下文裁剪（Qoder CLI）**——证据：官方文档 hooks-reference / settings-reference / slash-reference / sessions + 本机 `.qoder-cn` 配置：
+
+- Auto-compact：原生支持，接近上下文窗口上限自动触发；无独立开关，经 `model.contextWindow` 间接控制（本机已配 400000）。
+- **PreCompact / PostCompact hooks 存在**（28 个事件之二）→ O(1) 裁剪接入点 = 挂这两个 hook：PreCompact 前状态卡已每轮常驻，PostCompact 后重新注入状态卡，细节靠检索拉回。
+- 命令级手段：`/compact` 手动触发、`/clear` 只清对话上下文（AGENTS.md 与长期记忆独立保留）、`/new`、`/rewind`、`/branch`。
+- 会话恢复：`-r/--resume`、`-c/--continue`；转录 `.jsonl` 全量落盘 + state.json 记压缩边界，恢复重放压缩后历史。
+- **结论：底座可控路径成立，批 B① 不需自己实现裁剪**——实现 = PreCompact/PostCompact hook 接线 + 状态卡重注入 + `model.maxSessionTurns` / `contextWindow` 阈值定制。
+
+**旁路模型选型**——全部本地化（零 provider 成本），磁盘大小为按参数量化公式估算，落地下载时二次确认：
+
+| 组件 | 模型 | 量化 | 磁盘 | 内存 | 延迟 | 运行时 |
+|---|---|---|---|---|---|---|
+| 轻确认分类器 | MiniLM-L6 多语微调 | ONNX int8 | ~90MB | ~150MB | 5-30ms | onnxruntime-node |
+| 语义抽取 | Qwen3-4B（省内存备选 Qwen2.5-3B） | GGUF Q4_K_M | ~2.5GB / ~1.9GB | ~2.8GB / ~2GB | 15-30 tok/s | node-llama-cpp |
+| Embedding 基准 | bge-m3 | fp16/int8 | 1.1/0.6GB | ≈磁盘 | 30-80ms | onnxruntime-node |
+| Embedding 默认 | bge-small-zh-v1.5 | int8 | ~25MB | ~100MB | <10ms | onnxruntime-node |
+| Reranker 基准 | bge-reranker-v2-m3 | int8 | ~0.6GB | ≈磁盘 | 50-150ms | onnxruntime-node |
+| Reranker 瘦身 | bge-reranker-base | int8 | ~280MB | ~300MB | 30-80ms | onnxruntime-node |
+
+安装包策略：**默认随包 MiniLM + bge-small-zh-v1.5（合计 <200MB，保分类与中文检索主路径）；bge-m3 / reranker / Qwen3-4B 首次使用时按需后台下载，失败静默回退确定性路径**。运行时定案：node-llama-cpp（GGUF，预编译二进制随 npm 分发、Windows 原生）+ onnxruntime-node（ONNX，embedding/reranker 用）；ollama sidecar 需用户另装，弃用。
 
 ## 3. 作用域与命名空间（二期设计）
 
