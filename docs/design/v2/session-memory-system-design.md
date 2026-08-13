@@ -18,8 +18,9 @@
 
 按序推进，① 优先级最高：
 
-1. **上下文裁剪接入（O(1) 落地）**：方案已由批 A 定案（底座可控路径成立）——实现 = 挂 PreCompact/PostCompact hook：PreCompact 时状态卡落库防丢，PostCompact 后经 hookSpecificOutput 重新注入状态卡，细节靠检索拉回；辅以 `model.maxSessionTurns` / `contextWindow` 阈值定制。验收：① 长会话实测 ctx 有界——每轮上下文长度序列从 transcript usage 提取，确定性可量化；② 同任务 token 消耗对比——脚本化回归场景（固定任务）裁剪接入前后各跑 N 次取中位数对比总 token，模型输出非确定，故作为趋势性佐证而非精确值
+1. **上下文裁剪接入（O(1) 落地）**：方案已由批 A 定案（底座可控路径成立）——实现 = 挂 PreCompact/PostCompact hook：PreCompact 时状态卡落库防丢，PostCompact 后经 hookSpecificOutput 重新注入状态卡，细节靠检索拉回；辅以 `model.maxSessionTurns` / `contextWindow` 阈值定制。验收：① 长会话实测 ctx 有界——每轮上下文长度序列从 transcript 条目 + `compact_boundary` 的 compactMetadata 锚点重建（底座不落 per-turn usage，实测确认），确定性可量化；② 同任务 token 消耗对比——脚本化回归场景（固定任务）裁剪接入前后各跑 N 次取中位数对比总 token，模型输出非确定，故作为趋势性佐证而非精确值
    - **spike 实测 + 实机验证（2026-08-14，本机 `/compact`）**：PreCompact 载荷 = session_id/transcript_path/cwd/hook_event_name/model/trigger/custom_instructions（无摘要）；PostCompact 载荷 = 同上 + `compact_summary`（替换历史的摘要全文）、`trigger` ∈ manual/auto。**接线已落地**：① PostCompact → 新增 `compact_checkpoint` 事件入流水（body=摘要全文，meta=trigger/model）——摘要即压缩边界血缘标记，可检索（实机落库验证通过，trigger=manual）；② PreCompact 不需接线——事件流水已持续采集（UserPromptSubmit/PreToolUse/PostToolUse/Stop 全挂 capture），DB 先于压缩已是最新。**实机结论**：PostCompact 的 hookSpecificOutput 状态卡注入不被底座采纳（压缩边界后无状态卡），该接线已移除；状态卡回归由 UserPromptSubmit 每轮注入保证（手动压缩后下一条用户消息即恢复），auto-compact 续写首轮由压缩摘要的 Primary Request 段兜底——目标不漂移保障成立
+   - **验收①（2026-08-14 落地）**：已建 `scripts/eval-ctx.mjs`（transcript 字符窗口 + 分段锚点校准重建每轮上下文曲线）与 `scripts/eval-compare.mjs`（同任务前后各 N 次取中位数对比）。本会话实测：3 次压缩锚点 249541→4785 / 74047→3673 / 63797→3614（降幅 94~98%），每轮上下文估算峰值 248927 ≤ 锚点峰值 249541，sawtooth 成立、谷值 ≤4785 → **ctx 有界 ✅**；auto-compact 未触发（阈值未配），其有界性待阈值配置后补测。**验收②**：harness 就绪，固定任务需在新鲜会话各跑 N 次积累数据（任务须长到触发 ≥1 次压缩，否则接入前后无差别）
 2. §3 作用域与命名空间全量落地：用户级结构化库 + 按项目键分事件库、项目键推导、查询合并（project+global）、状态卡合并显示、非当前项目硬过滤
 3. 跨会话自动继承（轻量版）：新会话开场注入上一项目会话的 active 决策 / 全局反馈（最近 N 条），复杂跨会话检索策略等线上度量数据后再调
 4. 现网串库修复 + 一次性迁移脚本（现网 `.thread/sms.db` → 新结构，数据无损）
