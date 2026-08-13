@@ -41,3 +41,14 @@ pnpm changeset     # 用户可见变更需生成 changeset
 3. 事件流写入必须"写时即建索引"；任何旁路处理可失败可重试，不得阻塞对话主路径。
 4. 存储选型已定方向：SQLite（better-sqlite3）+ FTS5 BM25；`session_id` 从第一天带上。
 5. Agent 本地配置（`.qoder/`、`.claude/` 等）不入库；项目级规则统一维护在本文件与设计文档中。
+
+## 狗粮循环（Dogfooding）
+
+- **原则**：用当前版本的 Thread 管理 Thread 自身的开发会话上下文——开发即测试。当前基线 = 当前已提交版本（v0 MVP）。
+- **接入点**（`.qoder/settings.json` hooks + `.qoder/mcp.json`，均为本地配置不入库）：
+  - 采集：`UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `Stop` → `scripts/capture.mjs`（异步）
+  - 注入：`UserPromptSubmit` → `scripts/status-card.mjs`（同步，`hookSpecificOutput.additionalContext` + 必填 `hookEventName`）
+  - 查询：MCP server `thread-sms` → `packages/adapters/qoder-cli/dist/server.js`，工具 `query_session_memory`
+- **生效时机**：hooks 即时生效（当前会话可用）；MCP 工具仅在**新会话**加载（中途配置对当前会话不可见）。
+- **升级循环**：迭代 Thread 代码 → `pnpm build` 重建 → 开新会话即用新版本（脚本路径固定，无需改配置）；新版本经回归集 + 狗粮验证后再升级基线。
+- **迭代时的自测纪律**：本会话中的用户消息/工具调用/决策已实时入库（`.thread/sms.db`），可用 `query_session_memory`（新会话）或直接查库验证；发现漏召回/误判记入回归集场景。
