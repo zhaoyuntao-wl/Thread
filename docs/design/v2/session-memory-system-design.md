@@ -71,6 +71,7 @@
 - 命令级手段：`/compact` 手动触发、`/clear` 只清对话上下文（AGENTS.md 与长期记忆独立保留）、`/new`、`/rewind`、`/branch`。
 - 会话恢复：`-r/--resume`、`-c/--continue`；转录 `.jsonl` 全量落盘 + state.json 记压缩边界，恢复重放压缩后历史。
 - **结论：底座可控路径成立，批 B① 不需自己实现裁剪**——实现 = PreCompact/PostCompact hook 接线 + 状态卡重注入 + `model.maxSessionTurns` / `contextWindow` 阈值定制。
+- **Spike（2026-08-14，`_ctx-spike` 隔离目录）**：`model.maxSessionTurns=2` 实测**不改变历史重发**——hook 探针验证项目级配置正常加载；金丝雀（轮 1 写 canary-8472，轮 5 询问）+ 轮 6 让模型列举全部用户消息，模型完整复现全部 6 条。底座上下文只有三条路径：全量重发 / `/clear` / 压缩（手动 + auto），**无"只重发最近 N 轮"机制**。**完全接管 prompt 组装无底座通道**：hook 只能注入（加法）或阻塞（exit 2），不能替换历史；实现路径仅剩 wrapper（SDK 驱动自有会话，v1 §149 替代路径）或底座新能力。当前"旁路观测 + 增量注入"即底座能力边界内最优解。
 
 **旁路模型选型**——全部本地化（零 provider 成本），磁盘大小为按参数量化公式估算，落地下载时二次确认：
 
