@@ -1,8 +1,10 @@
 # Contributing to Thread
 
 Thanks for your interest. Thread is in private development — the MVP scope is fixed in
-[session-memory-system-design.md](./session-memory-system-design.md). Before opening
-issues or PRs, please read it.
+[docs/design/v1/session-memory-system-design.md](./docs/design/v1/session-memory-system-design.md)
+(v1 baseline); phase-2 plans live in
+[docs/design/v2/session-memory-system-design.md](./docs/design/v2/session-memory-system-design.md).
+Before opening issues or PRs, please read both.
 
 ## Reporting issues
 

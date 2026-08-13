@@ -5,7 +5,7 @@
 Thread：编码 Agent 的会话记忆层（*Session memory with lineage for coding agents*），底座无关。
 核心价值：长任务上下文保真——决策不丢、目标不漂移、不重复提问。事件流水无损存储 + 按需检索，关键路径（目标 + 情节状态）O(1) 常驻。
 
-**动手前必读**：[session-memory-system-design.md](./session-memory-system-design.md)——需求与架构权威文档（已确认）。实现与设计不一致时，先改设计文档再改代码。
+**动手前必读**：[docs/design/v1/session-memory-system-design.md](./docs/design/v1/session-memory-system-design.md)——需求与架构权威文档（v1 基线，已确认）。实现与设计不一致时，先改设计文档再改代码。二期规划与未决项见 [docs/design/v2/session-memory-system-design.md](./docs/design/v2/session-memory-system-design.md)，规划讨论不进 v1 基线。
 
 ## 技术栈与结构
 

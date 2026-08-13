@@ -6,7 +6,7 @@ Thread is a base-agnostic memory layer for coding agents. Instead of lossy conte
 compression, it stores the full event stream of a session losslessly and retrieves
 on demand — goals, decisions, feedback, and lineage stay intact across long tasks.
 
-> Status: private development (MVP). Design: [session-memory-system-design.md](./session-memory-system-design.md)
+> Status: private development (MVP). Design: [v1 baseline](./docs/design/v1/session-memory-system-design.md) · [v2 plans](./docs/design/v2/session-memory-system-design.md)
 
 ## Why
 
