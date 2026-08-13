@@ -39,6 +39,26 @@
 
 > 批 C 前需完成批 A 模型选型的实测（下载 / 内存 / 延迟验证）。
 
+### 底座战略（2026-08-14 论证，待验证后立项）
+
+**背景链**：上下文膨胀治标不治本（压缩有信息密度下限，压无可压）→ 目标架构 = Thread 完全组织每轮上下文（状态卡 + 检索片段 + 近期工具历史，历史重放移除）→ Qoder 底座无此通道（`maxSessionTurns` spike 实测不截断重发）→ SDK wrapper 绕行（每轮新会话）可行但 Qoder 仅剩执行层价值。
+
+**候选底座：earendil-works/pi**（badlogic 出品，MIT，TypeScript 单仓，v0.84.1）。三包分离：`pi-ai`（40+ Provider 统一抽象，含 DeepSeek）/ `pi-agent-core`（模型无关 Agent 运行时，事件流驱动）/ `pi-coding-agent`（编码 CLI，read/write/edit/bash + 扩展系统）；附 pi-tui（差分渲染 TUI）、node:sqlite + JSONL 会话持久化、AGENTS.md 原生支持。
+
+**五维判据对照**：
+
+| 维度 | Qoder（SDK wrapper） | Pi（深度集成） |
+|---|---|---|
+| 上下文组装 | 绕行：每轮新会话 | **原生**：runLoop 的 initialContext 由调用方构造；`convertToLlm` 钩子 + compaction 策略（`packages/agent/src/harness/compaction/`）为官方扩展位 |
+| 模型 | Qoder 订阅额度 | DeepSeek 等 40+，API 自费 |
+| 采集接线 | hooks | 事件流订阅 + before/afterToolCall 钩子 |
+| 维护 | 公开 API，轻 | 跟进上游版本（更新快） |
+| 成熟度 | 商用产品 | 开源新项目，工程样板级质量 |
+
+**结论**：Pi 是 Thread 深度集成的更优底座——Thread 做成 pi-agent-core 之上的上下文策略层（不是 fork 二开，用官方扩展位），Pi CLI/TUI 保留；Qoder 继续作为第一参考适配器与现网狗粮，两底座并存符合"底座无关"定位。
+
+**唯一待验证点**：pi-coding-agent 扩展系统能否**不改上游代码**接入 Thread 的上下文策略（compaction 替换 + 事件订阅采集）；扩展位不够则退而 fork 或自建宿主（pi-agent-core + pi-tui 自组，工程量仍可控）。验证方式 = Pi 安装 spike（跑通 + 摸扩展位），**不急，排在批 B 后**。
+
 ---
 
 ## 1. 二期规划
