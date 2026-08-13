@@ -267,6 +267,22 @@ export class ThreadStore {
       .all(sessionId) as Goal[];
   }
 
+  getFeedback(sessionId: string, limit = 5): FeedbackRow[] {
+    return this.db
+      .prepare(`SELECT * FROM feedback WHERE session_id = ? ORDER BY id DESC LIMIT ?`)
+      .all(sessionId, limit) as FeedbackRow[];
+  }
+
+  getRecentEvents(sessionId: string, limit = 5): SessionEvent[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, session_id, kind, ts, seq, body, meta, truncated
+         FROM events WHERE session_id = ? ORDER BY id DESC LIMIT ?`,
+      )
+      .all(sessionId, limit) as Array<Omit<SessionEvent, "meta"> & { meta: string | null }>;
+    return rows.map((r) => ({ ...r, meta: r.meta ? JSON.parse(r.meta) : undefined }));
+  }
+
   updateGoalStatus(sessionId: string, goalId: number, status: GoalStatus): Goal | undefined {
     return this.db
       .prepare(
