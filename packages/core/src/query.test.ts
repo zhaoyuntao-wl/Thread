@@ -82,4 +82,17 @@ describe("queryMemory", () => {
     const result = queryMemory(store, "summary-marker", { sessionId: "q1" });
     expect(result.status).toBe("not-found");
   });
+
+  it("degrades to episode summary on partial-token mismatch", () => {
+    store.append({
+      session_id: "q1",
+      kind: "user_message",
+      ts: "2026-08-13T00:00:10.000Z",
+      body: "继续开发",
+    });
+    const result = queryMemory(store, "bcryp", { sessionId: "q1" });
+    expect(result.status).toBe("degraded");
+    expect(result.results[0].kind).toBe("summary");
+    expect(result.results[0].body).toContain("bcrypt");
+  });
 });

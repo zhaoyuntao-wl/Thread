@@ -167,49 +167,74 @@ export class ThreadStore {
     return row?.session_id;
   }
 
+  hasAssistantTurn(sessionId: string, uuid: string): boolean {
+    return (
+      this.db
+        .prepare(
+          `SELECT 1 FROM events WHERE session_id = ? AND kind = 'assistant_message' AND json_extract(meta, '$.assistant_uuid') = ? LIMIT 1`,
+        )
+        .get(sessionId, uuid) !== undefined
+    );
+  }
+
   close(): void {
     this.db.close();
   }
 
   append(event: Omit<SessionEvent, "id" | "seq" | "truncated">): SessionEvent {
-    const { body, truncated } = truncateBody(event.body);
-    const metaJson = event.meta ? JSON.stringify(event.meta) : null;
-    const metaTruncated = metaJson ? metaJson.length > MAX_BODY_CHARS : false;
+    return this.db.transaction(() => {
+      const { body, truncated } = truncateBody(event.body);
+      const metaJson = event.meta ? JSON.stringify(event.meta) : null;
+      const metaTruncated = metaJson ? metaJson.length > MAX_BODY_CHARS : false;
+      const storedMetaJson =
+        metaTruncated && metaJson ? metaJson.slice(0, MAX_BODY_CHARS) : metaJson;
 
-    const seq = this.nextSeq(event.session_id);
-    this.db
-      .prepare(
-        `INSERT INTO events (session_id, kind, ts, seq, body, meta, truncated)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        event.session_id,
-        event.kind,
-        event.ts,
+      const seq = this.nextSeq(event.session_id);
+      this.db
+        .prepare(
+          `INSERT INTO events (session_id, kind, ts, seq, body, meta, truncated)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          event.session_id,
+          event.kind,
+          event.ts,
+          seq,
+          body,
+          storedMetaJson,
+          truncated || metaTruncated ? 1 : 0,
+        );
+      const eventId = this.db.prepare(`SELECT last_insert_rowid() AS id`).get() as { id: number };
+      this.db.prepare(`INSERT INTO events_fts(rowid, body) VALUES (?, ?)`).run(eventId.id, cjkSpace(body));
+
+      const eventMeta = event.meta as Record<string, unknown> | undefined;
+      if (typeof eventMeta?.file_path === "string") {
+        this.addLineageEdge(event.session_id, "event", eventId.id, "file", null, "touches_file", {
+          ref: eventMeta.file_path,
+          ts: event.ts,
+        });
+      }
+      if (typeof eventMeta?.tool_name === "string") {
+        this.addLineageEdge(event.session_id, "event", eventId.id, "tool", null, "uses_tool", {
+          ref: eventMeta.tool_name,
+          ts: event.ts,
+        });
+      }
+
+      this.updateEpisode(event.session_id, seq, event.kind, event.ts);
+      return {
+        ...event,
+        id: eventId.id,
         seq,
         body,
-        metaTruncated && metaJson ? metaJson.slice(0, MAX_BODY_CHARS) : metaJson,
-        truncated || metaTruncated ? 1 : 0,
-      );
-    const eventId = this.db.prepare(`SELECT last_insert_rowid() AS id`).get() as { id: number };
-    this.db.prepare(`INSERT INTO events_fts(rowid, body) VALUES (?, ?)`).run(eventId.id, cjkSpace(body));
+        meta: storedMetaJson ? (safeParse(storedMetaJson) as Record<string, unknown>) : undefined,
+        truncated: truncated || metaTruncated,
+      };
+    })();
+  }
 
-    const eventMeta = event.meta as Record<string, unknown> | undefined;
-    if (typeof eventMeta?.file_path === "string") {
-      this.addLineageEdge(event.session_id, "event", eventId.id, "file", null, "touches_file", {
-        ref: eventMeta.file_path,
-        ts: event.ts,
-      });
-    }
-    if (typeof eventMeta?.tool_name === "string") {
-      this.addLineageEdge(event.session_id, "event", eventId.id, "tool", null, "uses_tool", {
-        ref: eventMeta.tool_name,
-        ts: event.ts,
-      });
-    }
-
-    this.updateEpisode(event.session_id, seq, event.kind, event.ts);
-    return { ...event, id: eventId.id, seq, body, truncated: truncated || metaTruncated };
+  transact<T>(fn: () => T): T {
+    return this.db.transaction(fn)();
   }
 
   search(query: string, opts: { limit?: number; sessionId?: string } = {}): SearchHit[] {
@@ -235,6 +260,14 @@ export class ThreadStore {
     return this.db
       .prepare(
         `SELECT * FROM episodes WHERE session_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1`,
+      )
+      .get(sessionId) as Episode | undefined;
+  }
+
+  getLatestEpisodeWithSummary(sessionId: string): Episode | undefined {
+    return this.db
+      .prepare(
+        `SELECT * FROM episodes WHERE session_id = ? AND summary IS NOT NULL ORDER BY id DESC LIMIT 1`,
       )
       .get(sessionId) as Episode | undefined;
   }
@@ -280,7 +313,10 @@ export class ThreadStore {
          FROM events WHERE session_id = ? ORDER BY id DESC LIMIT ?`,
       )
       .all(sessionId, limit) as Array<Omit<SessionEvent, "meta"> & { meta: string | null }>;
-    return rows.map((r) => ({ ...r, meta: r.meta ? JSON.parse(r.meta) : undefined }));
+    return rows.map((r) => ({
+      ...r,
+      meta: r.meta ? (safeParse(r.meta) as Record<string, unknown>) : undefined,
+    }));
   }
 
   updateGoalStatus(sessionId: string, goalId: number, status: GoalStatus): Goal | undefined {
@@ -394,7 +430,7 @@ export class ThreadStore {
   getActiveDecisions(sessionId: string): Decision[] {
     return this.db
       .prepare(
-        `SELECT * FROM decisions WHERE session_id = ? AND status IN ('confirmed', 'active') ORDER BY id`,
+        `SELECT * FROM decisions WHERE session_id = ? AND status = 'active' ORDER BY id`,
       )
       .all(sessionId) as Decision[];
   }
@@ -491,9 +527,7 @@ export class ThreadStore {
 
   private updateEpisode(sessionId: string, seq: number, kind: EventKind, ts: string): void {
     if (kind === "user_message") {
-      this.db
-        .prepare(`UPDATE episodes SET seq_end = ? WHERE session_id = ? AND status = 'active'`)
-        .run(seq - 1, sessionId);
+      this.closeActiveEpisode(sessionId, seq - 1);
       this.db
         .prepare(
           `INSERT INTO episodes (session_id, seq_start, status, created_at) VALUES (?, ?, 'active', ?)`,
@@ -505,6 +539,30 @@ export class ThreadStore {
         .run(seq, sessionId);
     }
   }
+
+  private closeActiveEpisode(sessionId: string, seqEnd: number): void {
+    if (seqEnd <= 0) {
+      return;
+    }
+    const episode = this.getActiveEpisode(sessionId);
+    if (!episode) {
+      return;
+    }
+    const rows = this.db
+      .prepare(
+        `SELECT body FROM events WHERE session_id = ? AND seq BETWEEN ? AND ? ORDER BY seq`,
+      )
+      .all(sessionId, episode.seq_start, seqEnd) as Array<{ body: string }>;
+    const summary = rows
+      .map((r) => r.body)
+      .join("\n")
+      .slice(0, EPISODE_SUMMARY_CHARS);
+    this.db
+      .prepare(
+        `UPDATE episodes SET seq_end = ?, summary = COALESCE(summary, ?) WHERE id = ? AND session_id = ?`,
+      )
+      .run(seqEnd, summary, episode.id, sessionId);
+  }
 }
 
 function toFtsQuery(query: string): string {
@@ -513,6 +571,16 @@ function toFtsQuery(query: string): string {
     return "";
   }
   return tokens.map((t) => `"${t.replaceAll('"', '""')}"`).join(" AND ");
+}
+
+const EPISODE_SUMMARY_CHARS = 4000;
+
+function safeParse(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
 }
 
 function cjkSpace(text: string): string {

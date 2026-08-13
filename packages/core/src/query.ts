@@ -88,7 +88,7 @@ function findEpisodeSummary(
   if (!sessionId) {
     return undefined;
   }
-  const episode = store.getActiveEpisode(sessionId);
+  const episode = store.getLatestEpisodeWithSummary(sessionId);
   const summary = episode?.summary;
   if (!summary) {
     return undefined;

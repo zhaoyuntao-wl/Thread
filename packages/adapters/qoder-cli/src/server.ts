@@ -1,18 +1,14 @@
-import { ThreadStore, queryMemory } from "@thread/core";
+import { ThreadStore, queryMemory, THREAD_VERSION } from "@thread/core";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { defaultDbPath } from "./index.js";
 
-const packageRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
-const defaultDbPath = process.env.THREAD_DB ?? join(packageRoot, ".thread", "sms.db");
-
-const store = new ThreadStore({ path: defaultDbPath });
+const store = new ThreadStore({ path: defaultDbPath(import.meta.url) });
 
 const server = new McpServer({
   name: "thread-sms",
-  version: "0.0.0",
+  version: THREAD_VERSION,
 });
 
 server.tool(

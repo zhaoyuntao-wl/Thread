@@ -1,8 +1,7 @@
-export type DecisionStatus = "proposed" | "confirmed" | "active" | "superseded" | "revoked";
+export type DecisionStatus = "proposed" | "active" | "superseded" | "revoked";
 
 const TRANSITIONS: Record<DecisionStatus, DecisionStatus[]> = {
-  proposed: ["confirmed", "active", "superseded", "revoked"],
-  confirmed: ["active", "superseded", "revoked"],
+  proposed: ["active", "superseded", "revoked"],
   active: ["superseded", "revoked"],
   superseded: [],
   revoked: [],

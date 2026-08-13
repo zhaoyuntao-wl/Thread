@@ -45,10 +45,10 @@ pnpm changeset     # 用户可见变更需生成 changeset
 ## 狗粮循环（Dogfooding）
 
 - **原则**：用当前版本的 Thread 管理 Thread 自身的开发会话上下文——开发即测试。当前基线 = 当前已提交版本（v0 MVP）。
-- **接入点**（`.qoder/settings.json` hooks + `.qoder/mcp.json`，均为本地配置不入库）：
-  - 采集：`UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `Stop` → `scripts/capture.mjs`（异步）
+- **接入点**（`.qoder/settings.json` hooks + `.qoder/settings.local.json` MCP，均为本地配置不入库）：
+  - 采集：`UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `Stop` → `scripts/capture.mjs`（异步）；capture 内联确定性轻确认（`applyAnalysis`），用户消息/Agent 回复写入结构化表（目标/决策/反馈）；Agent 回复正文从 `transcript_path` 尾部提取（`extractLastAssistantTurn`，按 uuid 去重）
   - 注入：`UserPromptSubmit` → `scripts/status-card.mjs`（同步，`hookSpecificOutput.additionalContext` + 必填 `hookEventName`）
   - 查询：MCP server `thread-sms` → `packages/adapters/qoder-cli/dist/server.js`，工具 `query_session_memory`
-- **生效时机**：hooks 即时生效（当前会话可用）；MCP 工具仅在**新会话**加载（中途配置对当前会话不可见）。
+- **生效时机**：hooks 即时生效（当前会话可用）；MCP 配置变更后 `/mcp reload` 或开新会话生效。
 - **升级循环**：迭代 Thread 代码 → `pnpm build` 重建 → 开新会话即用新版本（脚本路径固定，无需改配置）；新版本经回归集 + 狗粮验证后再升级基线。
-- **迭代时的自测纪律**：本会话中的用户消息/工具调用/决策已实时入库（`.thread/sms.db`），可用 `query_session_memory`（新会话）或直接查库验证；发现漏召回/误判记入回归集场景。
+- **迭代时的自测纪律**：本会话中的用户消息/工具调用/决策已实时入库（`.thread/sms.db`），可用 `query_session_memory`（新会话）或直接查库验证；发现漏召回/误判记入回归集场景。手动演练 capture/status-card 脚本时必须设 `THREAD_DB` 指向临时库，严禁写入生产 `.thread/sms.db`。

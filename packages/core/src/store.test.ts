@@ -81,4 +81,42 @@ describe("ThreadStore", () => {
     const ep = store.getActiveEpisode("s1");
     expect(ep?.seq_start).toBe(5);
   });
+
+  it("writes a deterministic summary when an episode closes", () => {
+    store.append({
+      session_id: "s3",
+      kind: "user_message",
+      ts: "2026-08-13T00:00:00.000Z",
+      body: "使用 sqlite 存储",
+    });
+    store.append({
+      session_id: "s3",
+      kind: "tool_call",
+      ts: "2026-08-13T00:00:01.000Z",
+      body: "init db",
+    });
+    store.append({
+      session_id: "s3",
+      kind: "user_message",
+      ts: "2026-08-13T00:00:02.000Z",
+      body: "继续",
+    });
+    const ep = store.getLatestEpisodeWithSummary("s3");
+    expect(ep?.seq_end).toBe(2);
+    expect(ep?.summary).toContain("使用 sqlite 存储");
+    expect(ep?.summary).toContain("init db");
+  });
+
+  it("parses stored meta back into objects", () => {
+    const ev = store.append({
+      session_id: "s4",
+      kind: "tool_call",
+      ts: "2026-08-13T00:00:00.000Z",
+      body: "x",
+      meta: { tool_name: "Edit", file_path: "src/a.ts" },
+    });
+    expect(ev.meta).toEqual({ tool_name: "Edit", file_path: "src/a.ts" });
+    const recent = store.getRecentEvents("s4", 1);
+    expect(recent[0].meta).toEqual({ tool_name: "Edit", file_path: "src/a.ts" });
+  });
 });

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { analyzeTurn, applyTurn } from "./light-confirm.js";
+import { analyzeTurn, applyAnalysis, applyTurn } from "./light-confirm.js";
 import { ThreadStore } from "./store.js";
 import { canTransition } from "./state.js";
 
@@ -69,6 +69,27 @@ describe("analyzeTurn", () => {
     expect(pref.feedback).toEqual([{ text: "以后优先用 pnpm", kind: "preference" }]);
   });
 
+  it("captures supersede and preference in the same message", () => {
+    const analysis = analyzeTurn({ user_msg: "改成用 Redis，以后都别用 Memcached" });
+    expect(analysis.decisions).toEqual([
+      { action: "supersede", text: "用 Redis，以后都别用 Memcached" },
+    ]);
+    expect(analysis.feedback).toEqual([
+      { text: "改成用 Redis，以后都别用 Memcached", kind: "correction" },
+    ]);
+  });
+
+  it("does not declare decisions from negated or unrelated phrases", () => {
+    expect(analyzeTurn({ assistant_msg: "我不确定这个方案是否可行" }).decisions).toEqual([]);
+    expect(analyzeTurn({ assistant_msg: "我忘记下载依赖包" }).decisions).toEqual([]);
+    expect(analyzeTurn({ assistant_msg: "我们还在讨论中" }).decisions).toEqual([]);
+  });
+
+  it("does not treat questions as goals", () => {
+    expect(analyzeTurn({ user_msg: "请问登录怎么做" }).goals).toEqual([]);
+    expect(analyzeTurn({ user_msg: "帮我查一下这个错误" }).goals).toEqual([]);
+  });
+
   it("ignores unrelated messages", () => {
     expect(analyzeTurn({ user_msg: "用 A 吧" })).toEqual({ goals: [], decisions: [], feedback: [] });
     expect(analyzeTurn({})).toEqual({ goals: [], decisions: [], feedback: [] });
@@ -105,6 +126,19 @@ describe("applyTurn", () => {
     expect(store.getActiveGoals("s1")).toHaveLength(1);
     applyTurn(store, "s1", { user_msg: "以后别用回调" });
     expect(store.getActiveGoals("s1")).toHaveLength(1);
+  });
+
+  it("applyAnalysis writes structured rows without appending events", () => {
+    const before = store.getRecentEvents("s2", 100).length;
+    const ev = store.append({
+      session_id: "s2",
+      kind: "assistant_message",
+      ts: "2026-08-13T00:00:00.000Z",
+      body: "我记下了用 pnpm 管理依赖",
+    });
+    const applied = applyAnalysis(store, "s2", { assistant_msg: "我记下了用 pnpm 管理依赖" }, { sourceEvent: ev.id });
+    expect(applied.decisions).toHaveLength(1);
+    expect(store.getRecentEvents("s2", 100).length).toBe(before + 1);
   });
 });
 
