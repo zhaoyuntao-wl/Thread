@@ -32,32 +32,37 @@
 顺序：**血缘语义边 → 摘要模型 → 动态路由 → 评估面板**
 
 - 血缘语义边：决策 ↔ 代码实体贯通（依赖批 A 模型选型）
-- 摘要模型：情节归档、降级链末级正式化（替换确定性拼接）
-- 动态模型路由：任务分类 → 选模型，失败降级链，预算封顶（依赖度量数据）
+- 摘要模型：**已瘦身**——摘要由底座 compaction 承担（Pi 迭代摘要 / Qoder compact_summary），Thread 只留情节归档的确定性降级链
+- 动态模型路由：**已瘦身**——参考 OMP 角色路由模式（default/smol/slow/plan/commit），不自建，按需评估
 - 评估面板：线上度量可视化（依赖数据积累）
 - 验收：每子项各自回归 + 度量数据对比
 
 > 批 C 前需完成批 A 模型选型的实测（下载 / 内存 / 延迟验证）。
 
-### 底座战略（2026-08-14 论证，待验证后立项）
+### 底座战略与产品形态（2026-08-14 论证定案）
 
 **背景链**：上下文膨胀治标不治本（压缩有信息密度下限，压无可压）→ 目标架构 = Thread 完全组织每轮上下文（状态卡 + 检索片段 + 近期工具历史，历史重放移除）→ Qoder 底座无此通道（`maxSessionTurns` spike 实测不截断重发）→ SDK wrapper 绕行（每轮新会话）可行但 Qoder 仅剩执行层价值。
 
-**候选底座：earendil-works/pi**（badlogic 出品，MIT，TypeScript 单仓，v0.84.1）。三包分离：`pi-ai`（40+ Provider 统一抽象，含 DeepSeek）/ `pi-agent-core`（模型无关 Agent 运行时，事件流驱动）/ `pi-coding-agent`（编码 CLI，read/write/edit/bash + 扩展系统）；附 pi-tui（差分渲染 TUI）、node:sqlite + JSONL 会话持久化、AGENTS.md 原生支持。
+**候选底座调研（源码/文档实证）**：
 
-**五维判据对照**：
+- **earendil-works/pi**（badlogic 出品，MIT，TS 单仓）：三包分离 `pi-ai`（40+ Provider 含 DeepSeek）/ `pi-agent-core`（模型无关运行时）/ `pi-coding-agent`（CLI + 扩展系统）。上下文管理：阈值压缩（窗口-16K 预留触发 → 回合边界切割 → 保留近期 20K → LLM 迭代摘要替换，compaction entry 含文件血缘元数据）；树形会话；**扩展位** = `convertToLlm` 钩子 + compaction 模块整体可替换 + Dynamic Context（官方 RAG/记忆注入位）。裸编码能力：核心循环及格（4 工具基本盘、edit 模糊匹配、截断防御、并行执行），但无 WebSearch/子代理/plan/权限弹窗默认——纯编码任务约中位偏下~中位，综合任务低于中位，靠 Extension 补课。
+- **oh-my-pi**（can1357，从 Pi fork，Rust 引擎 ~55k LOC，周更）：电池全包路线——32 工具（LSP/DAP/Hashline/browser/web_search）、40+ provider 角色路由、sub-agent 编排。记忆相关：`mnemopi`（SQLite 知识记忆引擎 remember/recall，可选本地 ONNX embedding + 远程 LLM，确定性兜底——**知识记忆，与 Thread 会话保真不同向**）；`snapcompact`（丢弃历史渲染成 PNG 位图帧让视觉模型读回，确定性零 LLM 调用——**保细节，与 Thread 保结构互补**）；包列表含 `metaharness`（疑似 harness 接入点，待验证）。编码能力中位以上。
+- **Qoder CLI**：第一参考适配器与现网狗粮（批 A/B① 已实证三弱能力 + 压缩边界 hook）。
 
-| 维度 | Qoder（SDK wrapper） | Pi（深度集成） |
-|---|---|---|
-| 上下文组装 | 绕行：每轮新会话 | **原生**：runLoop 的 initialContext 由调用方构造；`convertToLlm` 钩子 + compaction 策略（`packages/agent/src/harness/compaction/`）为官方扩展位 |
-| 模型 | Qoder 订阅额度 | DeepSeek 等 40+，API 自费 |
-| 采集接线 | hooks | 事件流订阅 + before/afterToolCall 钩子 |
-| 维护 | 公开 API，轻 | 跟进上游版本（更新快） |
-| 成熟度 | 商用产品 | 开源新项目，工程样板级质量 |
+**Thread 定位收敛——会话保真策略层，三条边界**：
 
-**结论**：Pi 是 Thread 深度集成的更优底座——Thread 做成 pi-agent-core 之上的上下文策略层（不是 fork 二开，用官方扩展位），Pi CLI/TUI 保留；Qoder 继续作为第一参考适配器与现网狗粮，两底座并存符合"底座无关"定位。
+- 不做知识记忆（mnemopi/Qoder auto-memory 的地盘，重复即浪费）
+- 不做压缩保细节（底座 compaction / snapcompact 的地盘）
+- 只做状态结构：目标/决策状态机 + 血缘 + O(1) 状态卡 + 压缩边界 checkpoint
 
-**唯一待验证点**：pi-coding-agent 扩展系统能否**不改上游代码**接入 Thread 的上下文策略（compaction 替换 + 事件订阅采集）；扩展位不够则退而 fork 或自建宿主（pi-agent-core + pi-tui 自组，工程量仍可控）。验证方式 = Pi 安装 spike（跑通 + 摸扩展位），**不急，排在批 B 后**。
+**护城河判断**：不靠速度（can1357 周更产出下时间差无意义），靠**窄而深 + 验证体系**——漏召回/误判/漂移的度量与回归集是保真层命门，追功能的底座不会投入；生态位 = Pi 哲学不内置记忆、OMP 重心在工具链，会话保真是真空缺。
+
+**交付形态——适配器矩阵（主）+ 参考发行版（旗）**：
+
+- 主市场：Thread 适配器 × N 底座（三弱能力即可移植：hook 事件 / 上下文注入 / MCP）——Qoder 适配器已跑通，Claude Code hooks 同构（UserPromptSubmit/Stop/PreCompact + MCP）移植成本低。受众 = 全量长任务编码者，不押注任何底座。
+- 旗舰示范：t-pi / t-omp 参考发行版——演示"完全接管"目标架构，做技术旗帜而非唯一产品。t-pi 需预打包补齐件（滑向 OMP 路线）；t-omp 地基现成。**"完全接管"不是保真价值的必要条件**——旁路观测+注入已交付 80% 价值。
+
+**待验证点（批 B 后做双 spike）**：① Pi 扩展位能否不改上游接入（compaction 替换 + Dynamic Context + 事件采集）；② OMP 的 metaharness/snapcompact 可替换性与 Thread 接入点；③ 两底座同任务编码实测（地基打分）。
 
 ---
 
