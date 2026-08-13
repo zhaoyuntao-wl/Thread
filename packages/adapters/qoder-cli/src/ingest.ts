@@ -76,6 +76,18 @@ export function parseHookEvent(
         },
       };
     }
+    case "PostCompact":
+      return {
+        ...base,
+        kind: "compact_checkpoint",
+        body: typeof ev.compact_summary === "string" ? ev.compact_summary : "",
+        meta: {
+          trigger: ev.trigger,
+          model: ev.model,
+          transcript_path: ev.transcript_path,
+          cwd: ev.cwd,
+        },
+      };
     default:
       return undefined;
   }

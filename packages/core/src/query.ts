@@ -32,6 +32,7 @@ const KIND_LABELS: Record<string, string> = {
   tool_result: "tool_result",
   session_start: "session_start",
   session_end: "session_end",
+  compact_checkpoint: "compact",
 };
 
 export function queryMemory(

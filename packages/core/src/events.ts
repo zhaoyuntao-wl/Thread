@@ -6,7 +6,8 @@ export type EventKind =
   | "tool_call"
   | "tool_result"
   | "session_start"
-  | "session_end";
+  | "session_end"
+  | "compact_checkpoint";
 
 export interface SessionEvent {
   id: number;

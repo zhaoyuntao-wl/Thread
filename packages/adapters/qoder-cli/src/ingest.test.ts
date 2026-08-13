@@ -69,6 +69,25 @@ describe("parseHookEvent", () => {
     expect(ev?.meta?.assistant_text_pending).toBe(true);
   });
 
+  it("maps PostCompact to compact_checkpoint with summary body", () => {
+    const ev = parseHookEvent({
+      ...BASE,
+      hook_event_name: "PostCompact",
+      compact_summary: "Summary: 用户要求实现登录功能",
+      trigger: "manual",
+      model: "test-model",
+    });
+    expect(ev?.kind).toBe("compact_checkpoint");
+    expect(ev?.body).toBe("Summary: 用户要求实现登录功能");
+    expect(ev?.meta).toMatchObject({ trigger: "manual", model: "test-model" });
+  });
+
+  it("maps PostCompact without summary to empty checkpoint body", () => {
+    const ev = parseHookEvent({ ...BASE, hook_event_name: "PostCompact" });
+    expect(ev?.kind).toBe("compact_checkpoint");
+    expect(ev?.body).toBe("");
+  });
+
   it("drops events without session_id", () => {
     expect(parseHookEvent({ hook_event_name: "Stop" })).toBeUndefined();
     expect(parseHookEvent(null)).toBeUndefined();
