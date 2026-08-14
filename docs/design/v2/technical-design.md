@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS spills (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   event_id INTEGER NOT NULL REFERENCES events(id),
   ref TEXT NOT NULL,           -- 原文位置（spill 文件路径或底座日志引用）
-  blob TEXT NOT NULL,          -- 截断掉的原文（或为空，ref 指向底座日志）
+  blob TEXT,                   -- 截断掉的原文（NULL 时 ref 指向底座日志，不复制正文）
   sha256 TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
@@ -79,9 +79,26 @@ CREATE TABLE IF NOT EXISTS metrics (
 ALTER TABLE goals     ADD COLUMN project_key TEXT;
 ALTER TABLE decisions ADD COLUMN project_key TEXT;
 ALTER TABLE feedback  ADD COLUMN project_key TEXT;
-ALTER TABLE goals     ADD COLUMN scope TEXT DEFAULT 'project';
+ALTER TABLE goals     ADD COLUMN scope TEXT DEFAULT 'project';    -- session | project | global（三层，2026-08-14 grill 定案）
 ALTER TABLE decisions ADD COLUMN scope TEXT DEFAULT 'project';
 ALTER TABLE feedback  ADD COLUMN scope TEXT DEFAULT 'project';
+ALTER TABLE goals     ADD COLUMN origin TEXT;       -- 建立者（底座前缀 + 事件 uuid），project 级专属修改权绑定
+ALTER TABLE decisions ADD COLUMN origin TEXT;
+ALTER TABLE feedback  ADD COLUMN origin TEXT;
+
+-- 冲突域图谱（2026-08-14 grill 定案：实体共享 = 冲突域，MVP 确定性抽取，迭代通道预留）
+CREATE TABLE IF NOT EXISTS entities (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,      -- 规范化实体名（包名/文件路径/命令/函数名）
+  kind TEXT NOT NULL              -- file | package | command | function | topic
+);
+CREATE TABLE IF NOT EXISTS decision_entities (
+  decision_id INTEGER NOT NULL REFERENCES decisions(id),
+  entity_id INTEGER NOT NULL REFERENCES entities(id),
+  edge TEXT NOT NULL DEFAULT 'references',   -- references | conflicts_in（预留）
+  ts TEXT NOT NULL,
+  PRIMARY KEY (decision_id, entity_id)
+);
 ```
 
 ### 2.3 索引分层
@@ -91,6 +108,8 @@ FTS5 只对 `indexable` 事件建索引。indexable 集合：`user_message`、`a
 ### 2.4 迁移（B④）
 
 迁移脚本对现网 `.thread/sms.db`：加列（默认值回填）+ 新建表；迁移后校验 = 行数对比 + 抽样 body sha256 对比，校验失败回滚（copy 备份）。
+
+**迁移窗口 = 写者暂停协议（2026-08-14 grill 定案，多写者下必做）**：迁移为维护性操作，需短暂停写——① 迁移前 capture 侧设 `thread_migrating` 标志（环境变量/锁文件），各底座 capture 检测后入队缓冲不落库；② 迁移完成 → 队列排空写入新库；③ 迁移失败回滚 → 队列原样回写旧库。代价 = 迁移期间捕获延迟（分钟级，capture 本就异步）；收益 = 迁移窗口零并发写，校验/回滚语义干净。**禁止无暂停协议下在线迁移**（SQLite 结构变更 + 并发写是组合风险）。
 
 ## 3. 核心接口契约
 
@@ -105,12 +124,11 @@ interface AppendOptions {
   meta?: Record<string, unknown>;
   projectKey?: string;
   scope?: "global" | "project";
-  origin?: string;          // 底座事件引用
-  sourceUuid?: string;      // 幂等键（底座事件 uuid）
+  origin: string;           // 幂等键 + 底座事件引用（含底座前缀：qoder:// / dsh:// / claude:// / codex:// + 事件 uuid）——跨底座天然唯一
 }
 ```
 
-单事务内顺序：① 幂等检查（sourceUuid 已存在 → 返回已有，不重复落库）② 截断决策（`SpillPolicy.evaluate(body)`）③ 落 events ④ 若 spill：摘要入 body + spills 表写入 + `spilled=1` ⑤ FTS 分层索引（仅 indexable）⑥ 血缘边（file/tool 元数据，现有）⑦ 情节更新。任一步抛错 → 整体回滚，调用方视为未写入。
+单事务内顺序：① 幂等检查（`origin` 已存在 → 返回已有，不重复落库）② 截断决策（`SpillPolicy.evaluate(body)`）③ 落 events ④ 若 spill：摘要入 body + spills 表写入 + `spilled=1` ⑤ FTS 分层索引（仅 indexable）⑥ 血缘边（file/tool 元数据，现有）⑦ 情节更新。任一步抛错 → 整体回滚，调用方视为未写入。幂等键统一为 `origin`（§5.1），不再用裸 sourceUuid——裸 uuid 跨底座可碰撞。
 
 ### 3.2 SpillPolicy
 
@@ -140,6 +158,10 @@ interface Retriever {
 }
 ```
 
+**已知缺口（2026-08-14 狗粮实测）**：`search` 仅语义检索，无结构化查询能力。纯 MCP 接入的 Agent（无源码目录后门）无法回答"抽查/审计"类精确时序问题——"今早 9 点后第一个问题"实测 `not-found`（无时间语义）；"某工具调用了几次"实测命中解释文档而非计数（答非所问）。
+
+**设计方向（2026-08-14 用户定，接口内聚 + 主动提醒，非接口膨胀）**：不新增 `query_events` 等一堆接口——**模型不该被指望自觉识别查询类型**。应：① **查询接口内部做路由/处理逻辑**——单一 `search` 入口内识别查询意图（时序/计数/审计类 → 结构化执行路径：时间过滤/排序/计数聚合；语义类 → BM25 路径），对外保持一个接口；② **状态卡注入提醒驱动触发**——状态卡按上下文注入合适的检索提醒（何时可用/该走哪条路径），由提醒触发查询而非模型自己判断。回归场景：抽查类精确时序问题必须有服务层路径，禁止绕过直查库。
+
 ### 3.4 StateCardBuilder
 
 ```ts
@@ -151,6 +173,9 @@ interface StateCard {
 }
 // build(): O(1) 查询（按 project_key + scope 合并，分层优先级 会话内>项目>用户>全局）
 // 预算约束：≤200 行 / 单轮注入 token 预算（借鉴 CLAUDE.md 200 行 + workbuddy 分层裁决）
+// 序列化：XML 标签包裹 + 分级格式（critical 区 JSON / context 键值 / recent 摘要），
+//   预算分层 critical 60% / context 25% / recent 15%（默认可配）——见 business-design §2.3
+// 注入隔离：内容 = 数据非指令（XML 区域 + JSON 转义 + 物理隔离），防存储型提示注入（business-design §2.3）
 ```
 
 ### 3.5 StateMachine
@@ -168,6 +193,7 @@ interface KnowledgeProvider {
 // 实现：marm / codebase-memory-mcp（MCP client）/ 本地 BM25 兜底（core 自带）
 // CompactionSource：各底座压缩事件 → compact_checkpoint（Qoder 已有；dsh 订阅 session/event）
 ```
+**集成层约束（2026-08-14 用户定）**：Provider 为**可选注入**（接口存在、缺省降级），非强依赖——core 不 import 第三方实现；发布物只含集成推荐清单（文档），不打包第三方代码；BM25 兜底常驻，provider 缺失走降级不报错。
 
 ### 3.7 StorageGovernor / Archiver / Rebuilder（接口预留，实现延后）
 
@@ -191,11 +217,16 @@ interface Rebuilder {
 3. **无损语义**：任何截断必须带 `truncated` + `origin`/`spill`，原文可回拉；"无损"= 可检索回拉，非全文复制两份。
 4. **引用不可断裂**：lineage_edges / spills.event_id 必须指向存在的 id；适配器写入时校验，违规拒绝。
 5. **状态机合法转换**：所有状态变更经 `assertTransition`。
-6. **幂等**：capture 按底座事件 uuid 去重（现有 assistant 去重扩展至全 kind）。
+6. **幂等**：capture 按事件 `origin`（底座前缀 + 事件 uuid）去重（现有 assistant 去重扩展至全 kind）。
 7. **预算**：状态卡 ≤200 行；FTS 只索引 indexable kind（存储治理源头控制）。
 8. **底座无关**：core 零底座 import；适配器只做三弱能力映射（hook 事件 / 上下文注入 / MCP）。
 9. **迁移无损**：B④ 迁移后 count + 抽样 hash 校验，失败回滚。
 10. **事件溯源可重建**：events 流水 = 唯一真相源；派生层（结构化表/FTS/情节/血缘）可从流水重建；禁止只改派生层不落流水。
+11. **主动权在 Thread（2026-08-14 用户定，顶层原则）**：模型不可控，**不把希望放在模型上**——Thread 与模型的交互口越少越好，模型不需要理解记忆系统的结构；状态卡主动注入提醒触发查询（§3.3 设计方向），模型只需记住一条行为契约：**"需要啥就来问，别自己瞎猜"**。任何新能力先问"能否收进现有接口 / 能否由状态卡提醒驱动"，禁止靠暴露更多接口让模型自觉识别。
+    - **边界声明（2026-08-14 评估补充）**：本原则**降低而非根除模型元认知依赖**——"需要啥就来问"仍要求模型先意识到自己不确定；无意识盲区（模型以为自己知道）由状态卡提醒兜底，兜不住时接受失败可见（not-found 契约 + 漏召回日志），不得假装兜底完美。
+    - **提醒治理（2026-08-14 评估补充）**：接口少 ≠ 提醒少——提醒过频导致"狼来了"脱敏；提醒内容不得泄露记忆系统内部结构（只说"需要就说"，不说"有哪些查询路径"）。频度/内容走 B⑤ 度量（injection_follow_rate + 脱敏信号）。
+    - **词汇边界（2026-08-14 grill 定案）**：状态卡 = 用户可理解的事实 + 低频冲突询问（如"项目已有决策：用 pnpm（来自其他会话）。本会话沿用还是改用？"），**永不出现 session/project/scope 等机制词汇**；机制词汇只出现在工具描述契约段（主通道）。后来者选择提醒仅在冲突发生时出现（低频，非每轮），面向用户意图而非机制。
+    - **契约载体分层（2026-08-14 grill 定案，替代"适配器系统侧固定段落"）**：行为契约独立于状态卡（状态卡保持纯数据），走"最强且不可修改"通道，不依赖注入采纳度——① **主通道 = 工具描述内置**（`query_session_memory` / dsh `ctx.tools` 的 description 写死契约段：需要历史/不确定时调用、不编造、结果带引用；工具描述模型每轮可见、用户不可改、不进事件流水，跨底座一致）；② **增强 = dsh `agent/pre-step` 每步校验/重注入**（旗舰专属）；③ **系统侧注入段** = 适配器常量文本（尽力而为，Qoder 弱）；④ **状态卡提醒 = 兜底触发**（只说"需要就说"）。
 
 ## 5. 适配器契约
 
@@ -212,6 +243,11 @@ dsh 原生接缝补充（v2 战略章节已述）：`agent/pre-step` 瀑布可�
 
 - **幂等键 = origin**：`origin` 含底座前缀（`qoder://` / `dsh://` / `claude://` / `codex://` + 事件 uuid），跨底座天然唯一；多底座同项目并发写同一库不冲突。
 - **同项目单库多写者**（替代"单底座主写"方案）：SQLite WAL + busy_timeout（现有）+ 写失败重试队列（capture 异步，失败入队重试，不阻塞）；并发写可靠性列入 dsh spike 验证项（同项目双写压力实测）。
+- **结构化表多写者语义（2026-08-14 grill 定案：先到先得 + 后来者选择 + 建立者专属，替代"确认晋升制"）**：
+  - **先到先得**：决策/目标/反馈同域无对立时，第一次提出默认 `project` 级（成为项目共有，B③ 跨会话继承有内容）——不需用户显式确认即可建立项目共有层
+  - **后来者选择**：写入时经冲突域检测（实体共享，见下）发现同域已有 project 级 active → Thread 状态卡提醒（"项目级：pnpm；可跟随或会话级覆盖"），不自动写入对立决策，等用户当前会话表态——**跟随**（不入库）或 **session 级覆盖**（落 `scope=session`，不动 project）
+  - **建立者专属**：project 级只有 `origin` 建立者可发起修改（仍须用户确认）；其他会话只读（状态卡标注"只读，改需回建立会话或显式授权"）或 session 级覆盖
+  - **冲突域 = 实体共享（图谱，MVP 确定性，迭代通道预留）**：决策写时确定性抽取实体（包名/文件/命令/函数）→ `decision_entities` 边；新决策实体集 ∩ project active 决策实体集 ≠ ∅ → 冲突提醒。纯对话决策（抽不到共享实体）退回 text 匹配 + 用户确认兜底；语义实体（抽象主题）列 B⑥ 旁路增强；会话决策 ↔ code-review-graph 代码实体贯通为远期通道。误报可接受（宁可多提醒，后来者选择成本低），误报率入 B⑤ 度量
 - **子代理**：MVP 不采集子代理内部事件——子代理结论经主会话 tool_result 回流（现有链路已覆盖，轻确认旁路可提取候选决策）；主会话 → 子代理会话血缘关联为**可选边**（底座暴露时记录，低成本）；子代理深度跟踪（决策归属 / 独立状态卡）列入 B⑥ 后评估。
 
 ## 6. 验证体系代码级
@@ -226,6 +262,7 @@ dsh 原生接缝补充（v2 战略章节已述）：`agent/pre-step` 瀑布可�
   - scope-filter：非当前项目硬过滤 → 判据 = 零泄漏
   - migration-lossless：迁移后 count + 抽样 hash → 判据 = 零差异
   - rebuild-recovery：删除派生层后 rebuild 恢复 → 判据 = 与重建前一致
+  - **对比基准（2026-08-14 grill 定案，纳入 B⑦，护城河叙事证据）**：固定 3 场景（decision-chain / repeat-question / goal-retention）跑"外部底座对照"——Claude Code 或 dsh 原生（无 Thread）基线，结果入 metrics 不阻塞 CI 主链（需真实底座环境，CI 跑不了，手动脚本）；产出 = "场景级保真度量无人区"的对比证据，非全量对比（只 3 场景锚点）
 - 度量埋点：metrics 表（recall_miss / repeat_question / correction / storage_growth / injection_follow_rate）；B⑤ 埋点后由 evals 汇总输出。
 - CI 门禁：`pnpm eval` 纳入提交前验证链（AGENTS.md：typecheck && lint && test）；回归失败阻塞合入。
 

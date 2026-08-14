@@ -13,7 +13,7 @@ Thread：编码 Agent 的会话记忆层（*Session memory with lineage for codi
 - `packages/core`：事件流水、结构化表（目标/决策/反馈）、血缘图、BM25 检索
 - `packages/adapters/qoder-cli`：第一参考适配器（hooks 采集 / 上下文注入 / MCP query 工具）
 - `packages/evals`：回归集（长任务场景、事实保留率检查）
-- 底座：Qoder CLI（狗粮）；Codewhale（Hmbown/CodeWhale）= 第二候选，能力未验证
+- 底座：Qoder CLI（当前狗粮）；Codewhale（Hmbown/CodeWhale）= 第二候选，能力未验证。**规划（v2 定案）**：dsh spike 后切换 dsh 狗粮（旗舰优先验证），Qoder 降为适配器矩阵一员；开发顺序 = 先 MCP 通用层（thread-mcp）→ 后 dsh 旗舰插件。
 
 ## 常用命令
 
