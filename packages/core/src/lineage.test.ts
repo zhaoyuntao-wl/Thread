@@ -10,7 +10,7 @@ let store: ThreadStore;
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "thread-lineage-"));
-  store = new ThreadStore({ path: join(dir, "test.db") });
+  store = new ThreadStore({ eventsPath: join(dir, "events.db"), structuredPath: join(dir, "structured.db"), projectKey: "test-proj" });
 });
 
 afterAll(() => {
@@ -37,7 +37,7 @@ describe("lineage edges", () => {
     expect(events.length).toBeGreaterThan(0);
   });
 
-  it("links decisions to their source event", () => {
+  it("links decisions to their source event (edge in structured db)", () => {
     const ev = store.append({
       session_id: "l1",
       kind: "assistant_message",
@@ -46,8 +46,9 @@ describe("lineage edges", () => {
     });
     const applied = applyTurn(store, "l1", { assistant_msg: "我记下了用 JWT 做认证" }, { sourceEvent: ev.id });
     expect(applied.decisions).toHaveLength(1);
-    const related = store.getRelatedEvents("l1", ev.id);
-    expect(related.some((r) => r.edge_type === "derived_from" && r.src_type === "decision")).toBe(true);
+    const decision = applied.decisions[0];
+    const related = store.getRelatedEdges("l1", "decision", decision.id);
+    expect(related.some((r) => r.edge_type === "derived_from" && r.dst_id === ev.id)).toBe(true);
   });
 
   it("records supersedes edges between decisions", () => {

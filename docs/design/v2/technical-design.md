@@ -4,6 +4,7 @@
 
 - [v1 设计](./session-memory-system-design.md)：需求与架构权威基线
 - [v2 设计](./session-memory-system-design.md)：二期规划、底座战略、产品包络
+- [B④ 物理分库专篇](./b4-storage-split.md)：用户级结构化库 + 项目事件库（2026-08-14 提交评审，评审通过后实现）
 - **本文**：代码级设计与约束——实现必须遵守。与 v1/v2 冲突时先改文档再改代码（AGENTS.md 工作流约定）。
 
 范围：产品包络"做 9 / 不做 4"全部功能 + provider 抽象 + 适配器矩阵的代码级设计。
@@ -105,11 +106,11 @@ CREATE TABLE IF NOT EXISTS decision_entities (
 
 FTS5 只对 `indexable` 事件建索引。indexable 集合：`user_message`、`assistant_message`、`compact_checkpoint`、结构化表正文（目标/决策/反馈，以独立 FTS 或 events 派生）。`tool_call` / `tool_result` 大块**不建全文索引**，检索命中轻量事件后经 `origin`/`spill` 回拉原文。
 
-### 2.4 迁移（B④）
+### 2.4 迁移（B④ → 物理分库，见专篇）
 
-迁移脚本对现网 `.thread/sms.db`：加列（默认值回填）+ 新建表；迁移后校验 = 行数对比 + 抽样 body sha256 对比，校验失败回滚（copy 备份）。
+B② 已落地 ensureSchema 幂等迁移（schema v1 → v2 加列/建表，schema.ts）。B④ 为**物理分库**（用户级结构化库 + 项目事件库），代码级设计见 [B④ 物理分库专篇](./b4-storage-split.md)；迁移核心逻辑在 `packages/core/src/migrate.ts`，`scripts/migrate-split.mjs` 仅 CLI 包装。
 
-**迁移窗口 = 写者暂停协议（2026-08-14 grill 定案，多写者下必做）**：迁移为维护性操作，需短暂停写——① 迁移前 capture 侧设 `thread_migrating` 标志（环境变量/锁文件），各底座 capture 检测后入队缓冲不落库；② 迁移完成 → 队列排空写入新库；③ 迁移失败回滚 → 队列原样回写旧库。代价 = 迁移期间捕获延迟（分钟级，capture 本就异步）；收益 = 迁移窗口零并发写，校验/回滚语义干净。**禁止无暂停协议下在线迁移**（SQLite 结构变更 + 并发写是组合风险）。
+**写者暂停协议（2026-08-14 评审修订，替代原定案）**：原定案"禁止无暂停协议下在线迁移"针对**原地结构变更 + 并发写**组合风险（SQLite DDL + 并发写）。B④ 采用**复制式迁移**——旧库只读、不改旧库 DDL，新库独立写入，组合风险解除，不再需要写者暂停协议；零差异由**增量重放**保证（快照后 `id > snapshot_id` 增量按 origin 幂等补拉，见专篇 §7）。
 
 ## 3. 核心接口契约
 

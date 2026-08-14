@@ -11,7 +11,7 @@ let store: ThreadStore;
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "thread-evals-"));
-  store = new ThreadStore({ path: join(dir, "eval.db") });
+  store = new ThreadStore({ eventsPath: join(dir, "eval-events.db"), structuredPath: join(dir, "eval-structured.db"), projectKey: "eval-proj" });
 });
 
 afterAll(() => {

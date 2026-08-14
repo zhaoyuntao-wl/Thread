@@ -51,4 +51,4 @@ pnpm changeset     # 用户可见变更需生成 changeset
   - 查询：MCP server `thread-sms` → `packages/adapters/qoder-cli/dist/server.js`，工具 `query_session_memory`
 - **生效时机**：hooks 即时生效（当前会话可用）；MCP 配置变更后 `/mcp reload` 或开新会话生效。
 - **升级循环**：迭代 Thread 代码 → `pnpm build` 重建 → 开新会话即用新版本（脚本路径固定，无需改配置）；新版本经回归集 + 狗粮验证后再升级基线。
-- **迭代时的自测纪律**：本会话中的用户消息/工具调用/决策已实时入库（`.thread/sms.db`），可用 `query_session_memory`（新会话）或直接查库验证；发现漏召回/误判记入回归集场景。手动演练 capture/status-card 脚本时必须设 `THREAD_DB` 指向临时库，严禁写入生产 `.thread/sms.db`。
+- **迭代时的自测纪律**：本会话中的用户消息/工具调用/决策已实时入库（B④ 后双库：`~/.thread/structured.db` 结构化 + `~/.thread/projects/<项目键 hash>/events.db` 事件，项目键 = 规范化 git 根、目录名 = 31 哈希 base36），可用 `query_session_memory`（新会话）或直接查库验证；发现漏召回/误判记入回归集场景。手动演练 capture/status-card 脚本时必须设 `THREAD_ROOT` 指向临时根目录，严禁写入生产 `~/.thread/`。

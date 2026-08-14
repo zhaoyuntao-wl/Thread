@@ -2,9 +2,10 @@ import { ThreadStore, queryMemory, queryEvents, THREAD_VERSION } from "@thread/c
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { defaultDbPath } from "./index.js";
+import { defaultPaths } from "./index.js";
 
-const store = new ThreadStore({ path: defaultDbPath(import.meta.url) });
+const paths = defaultPaths(import.meta.url);
+const store = new ThreadStore({ eventsPath: paths.eventsDbPath, structuredPath: paths.structuredDbPath });
 
 const server = new McpServer({
   name: "thread-sms",

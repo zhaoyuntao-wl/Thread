@@ -9,7 +9,7 @@ let store: ThreadStore;
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "thread-b2-"));
-  store = new ThreadStore({ path: join(dir, "b2.db") });
+  store = new ThreadStore({ eventsPath: join(dir, "b2-events.db"), structuredPath: join(dir, "b2-structured.db"), projectKey: "proj-p1" });
 });
 
 afterAll(() => {
@@ -82,7 +82,7 @@ describe("B② 回归：origin 幂等", () => {
     };
     store.append(base, { origin: "eval://idem/1", projectKey: "proj-p1" });
     store.append(base, { origin: "eval://idem/1", projectKey: "proj-p1" });
-    const count = store.db
+    const count = store.eventsDb
       .prepare("SELECT COUNT(*) AS c FROM events WHERE origin = ?")
       .get("eval://idem/1") as { c: number };
     expect(count.c).toBe(1);
@@ -101,7 +101,7 @@ describe("B② 回归：origin 幂等", () => {
       origin: "eval://idem/dec/1",
       ts: "2026-08-14T00:00:08.000Z",
     });
-    const count = store.db
+    const count = store.structuredDb
       .prepare("SELECT COUNT(*) AS c FROM decisions WHERE origin = ?")
       .get("eval://idem/dec/1") as { c: number };
     expect(count.c).toBe(1);

@@ -1,8 +1,6 @@
 import { ThreadStore, applyScopePriority, deriveProjectKey } from "@thread/core";
-import { defaultDbPath } from "@thread/adapter-qoder-cli";
+import { defaultPaths } from "@thread/adapter-qoder-cli";
 import { readFileSync } from "node:fs";
-
-const dbPath = defaultDbPath(import.meta.url);
 
 let raw;
 try {
@@ -24,15 +22,16 @@ if (typeof sessionId !== "string" || sessionId.length === 0) {
 const hookEventName =
   typeof hookEvent?.hook_event_name === "string" ? hookEvent.hook_event_name : "UserPromptSubmit";
 
-const cwd = typeof hookEvent?.cwd === "string" ? hookEvent.cwd : process.cwd();
-const projectKey = deriveProjectKey(cwd);
+const hookCwd = typeof hookEvent?.cwd === "string" ? hookEvent.cwd : process.cwd();
+const projectKey = deriveProjectKey(hookCwd);
+const paths = defaultPaths(import.meta.url, hookCwd);
 
 let goals = [];
 let decisions = [];
 let feedback = [];
 let recent = [];
 try {
-  const store = new ThreadStore({ path: dbPath });
+  const store = new ThreadStore({ eventsPath: paths.eventsDbPath, structuredPath: paths.structuredDbPath });
   try {
     goals = applyScopePriority(store.getActiveGoalsMerged(sessionId, projectKey));
     decisions = applyScopePriority(store.getActiveDecisionsMerged(sessionId, projectKey));

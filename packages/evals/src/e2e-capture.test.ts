@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ThreadStore } from "@thread/core";
+import { deriveProjectKeyHash, ThreadStore } from "@thread/core";
 
 function findRepoRoot(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
@@ -21,12 +21,17 @@ const repoRoot = findRepoRoot();
 const captureScript = join(repoRoot, "scripts", "capture.mjs");
 
 let dir: string;
-let dbPath: string;
+let root: string;
+let eventsPath: string;
+let structuredPath: string;
 let store: ThreadStore;
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "thread-e2e-"));
-  dbPath = join(dir, "e2e.db");
+  root = join(dir, "thread-root");
+  // capture 按 cwd 推导项目键 hash 定位事件库
+  eventsPath = join(root, "projects", deriveProjectKeyHash(repoRoot), "events.db");
+  structuredPath = join(root, "structured.db");
 });
 
 afterAll(() => {
@@ -39,12 +44,12 @@ function capture(payload: unknown): void {
     cwd: repoRoot,
     input: JSON.stringify(payload),
     encoding: "utf8",
-    env: { ...process.env, THREAD_DB: dbPath },
+    env: { ...process.env, THREAD_ROOT: root },
   });
   expect(res.status, res.stderr).toBe(0);
 }
 
-describe("capture.mjs production pipeline", () => {
+describe("capture.mjs production pipeline (B④ 双库)", () => {
   it("captures user prompts and populates structured tables", () => {
     capture({
       session_id: "e2e-1",
@@ -52,7 +57,7 @@ describe("capture.mjs production pipeline", () => {
       prompt: "帮我实现登录功能",
       cwd: repoRoot,
     });
-    store = new ThreadStore({ path: dbPath });
+    store = new ThreadStore({ eventsPath, structuredPath });
     const events = store.getRecentEvents("e2e-1", 10);
     expect(events.some((e) => e.kind === "user_message" && e.body === "帮我实现登录功能")).toBe(true);
     expect(store.getActiveGoals("e2e-1").map((g) => g.text)).toEqual(["帮我实现登录功能"]);
@@ -77,7 +82,7 @@ describe("capture.mjs production pipeline", () => {
       transcript_path: transcript,
     });
     store.close();
-    store = new ThreadStore({ path: dbPath });
+    store = new ThreadStore({ eventsPath, structuredPath });
     const events = store.getRecentEvents("e2e-1", 10);
     const assistant = events.find((e) => e.kind === "assistant_message");
     expect(assistant?.body).toBe("我记下了使用 JWT 做认证");
@@ -94,7 +99,7 @@ describe("capture.mjs production pipeline", () => {
       cwd: repoRoot,
     });
     store.close();
-    store = new ThreadStore({ path: dbPath });
+    store = new ThreadStore({ eventsPath, structuredPath });
     expect(store.getEventsForFile("e2e-1", "src/auth.ts").length).toBe(1);
   });
 });

@@ -10,7 +10,7 @@ let store: ThreadStore;
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "thread-query-"));
-  store = new ThreadStore({ path: join(dir, "test.db") });
+  store = new ThreadStore({ eventsPath: join(dir, "events.db"), structuredPath: join(dir, "structured.db"), projectKey: "test-proj" });
   store.append({
     session_id: "q1",
     kind: "user_message",

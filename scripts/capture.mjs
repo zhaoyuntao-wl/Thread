@@ -1,10 +1,8 @@
 import { ThreadStore, applyAnalysis, deriveProjectKey } from "@thread/core";
-import { defaultDbPath, extractLastAssistantTurn, parseHookEvent } from "@thread/adapter-qoder-cli";
+import { defaultPaths, extractLastAssistantTurn, parseHookEvent } from "@thread/adapter-qoder-cli";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-
-const dbPath = defaultDbPath(import.meta.url);
 
 let raw;
 try {
@@ -35,7 +33,8 @@ if (event.kind === "assistant_message" && event.meta?.assistant_text_pending) {
   event.meta = { ...event.meta, assistant_uuid: turn.uuid, assistant_text_pending: false };
 }
 
-// 幂等键 origin：底座前缀 + 事件 uuid（assistant 用 transcript uuid，工具用 tool_use_id，用户消息用 body+ts 哈希兜底）
+// 幂等键 origin：底座前缀 + 事件 uuid（assistant 用 transcript uuid，工具用 tool_use_id，
+// 用户消息/压缩摘要用 body+ts 哈希兜底——compact_checkpoint 无 uuid，必须兜底否则重放会重复落库）
 let origin;
 const uuid = event.meta?.assistant_uuid;
 const toolUseId = event.meta?.tool_use_id;
@@ -43,16 +42,18 @@ if (typeof uuid === "string" && uuid.length > 0) {
   origin = `qoder://transcript#${uuid}`;
 } else if (typeof toolUseId === "string" && toolUseId.length > 0) {
   origin = `qoder://transcript#${toolUseId}`;
-} else if (event.kind === "user_message" && event.body) {
+} else if (event.kind === "user_message" || event.kind === "compact_checkpoint") {
   const h = createHash("sha256").update(`${event.body}\n${event.ts}`).digest("hex").slice(0, 16);
   origin = `qoder://transcript#sha256-${h}`;
 }
 
-const cwd = typeof hookEvent?.cwd === "string" ? hookEvent.cwd : process.cwd();
-const projectKey = deriveProjectKey(cwd);
+const hookCwd = typeof hookEvent?.cwd === "string" ? hookEvent.cwd : process.cwd();
+const projectKey = deriveProjectKey(hookCwd);
+const paths = defaultPaths(import.meta.url, hookCwd);
 
-mkdirSync(dirname(dbPath), { recursive: true });
-const store = new ThreadStore({ path: dbPath });
+mkdirSync(dirname(paths.eventsDbPath), { recursive: true });
+mkdirSync(dirname(paths.structuredDbPath), { recursive: true });
+const store = new ThreadStore({ eventsPath: paths.eventsDbPath, structuredPath: paths.structuredDbPath, projectKey });
 try {
   const existingUuid = event.meta?.assistant_uuid;
   if (event.kind === "assistant_message" && typeof existingUuid === "string" && store.hasAssistantTurn(event.session_id, existingUuid)) {

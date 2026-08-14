@@ -9,7 +9,7 @@ let store: ThreadStore;
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "thread-b3-"));
-  store = new ThreadStore({ path: join(dir, "b3.db") });
+  store = new ThreadStore({ eventsPath: join(dir, "b3-events.db"), structuredPath: join(dir, "b3-structured.db"), projectKey: "proj-inherit" });
 });
 
 afterAll(() => {

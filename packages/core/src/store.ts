@@ -7,7 +7,7 @@ import type { DecisionStatus, GoalStatus } from "./state.js";
 import { ensureSchema } from "./schema.js";
 import { SpillPolicy, isIndexable } from "./governor.js";
 
-const SCHEMA = `
+export const EVENTS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id TEXT NOT NULL,
@@ -42,6 +42,37 @@ CREATE TABLE IF NOT EXISTS episodes (
 );
 CREATE INDEX IF NOT EXISTS idx_episodes_session ON episodes(session_id, id);
 
+CREATE TABLE IF NOT EXISTS spills (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id INTEGER NOT NULL REFERENCES events(id),
+  ref TEXT NOT NULL,
+  blob TEXT,
+  sha256 TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS lineage_edges (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  src_type TEXT NOT NULL,
+  src_id INTEGER,
+  dst_type TEXT NOT NULL,
+  dst_id INTEGER,
+  ref TEXT,
+  edge_type TEXT NOT NULL,
+  confidence REAL NOT NULL DEFAULT 1.0,
+  ts TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_lineage_src ON lineage_edges(session_id, src_type, src_id);
+CREATE INDEX IF NOT EXISTS idx_lineage_dst ON lineage_edges(session_id, dst_type, dst_id);
+
+CREATE TABLE IF NOT EXISTS schema_version (
+  version INTEGER NOT NULL,
+  applied_at TEXT NOT NULL
+);
+`;
+
+export const STRUCTURED_SCHEMA = `
 CREATE TABLE IF NOT EXISTS goals (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id TEXT NOT NULL,
@@ -103,15 +134,6 @@ CREATE TABLE IF NOT EXISTS schema_version (
   applied_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS spills (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  event_id INTEGER NOT NULL REFERENCES events(id),
-  ref TEXT NOT NULL,
-  blob TEXT,
-  sha256 TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS entities (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE,
@@ -136,7 +158,9 @@ CREATE TABLE IF NOT EXISTS metrics (
 `;
 
 export interface ThreadStoreOptions {
-  path: string;
+  eventsPath: string;
+  structuredPath: string;
+  projectKey?: string;
 }
 
 export interface AppendOptions {
@@ -227,20 +251,20 @@ export interface SearchHit {
 }
 
 export class ThreadStore {
-  readonly db: Database.Database;
+  readonly eventsDb: Database.Database;
+  readonly structuredDb: Database.Database;
+  readonly projectKey?: string;
   private spillPolicy: SpillPolicy;
 
   constructor(opts: ThreadStoreOptions, spillPolicy: SpillPolicy = new SpillPolicy()) {
-    this.db = new Database(opts.path);
-    this.db.pragma("journal_mode = WAL");
-    this.db.pragma("busy_timeout = 5000");
-    this.db.exec(SCHEMA);
-    ensureSchema(this.db);
+    this.eventsDb = openDb(opts.eventsPath, EVENTS_SCHEMA, "events");
+    this.structuredDb = openDb(opts.structuredPath, STRUCTURED_SCHEMA, "structured");
+    this.projectKey = opts.projectKey;
     this.spillPolicy = spillPolicy;
   }
 
   getRecentSessionId(): string | undefined {
-    const row = this.db
+    const row = this.eventsDb
       .prepare(`SELECT session_id FROM events ORDER BY id DESC LIMIT 1`)
       .get() as { session_id: string } | undefined;
     return row?.session_id;
@@ -248,13 +272,13 @@ export class ThreadStore {
 
   // 引用回拉：spill.blob → spills 表；无 spill 返回事件 body；不可回拉返回 body + 缺失标记
   expand(eventId: number): string {
-    const spill = this.db
+    const spill = this.eventsDb
       .prepare(`SELECT blob, ref FROM spills WHERE event_id = ? LIMIT 1`)
       .get(eventId) as { blob: string | null; ref: string } | undefined;
     if (spill?.blob != null) {
       return spill.blob;
     }
-    const event = this.db.prepare(`SELECT body FROM events WHERE id = ?`).get(eventId) as
+    const event = this.eventsDb.prepare(`SELECT body FROM events WHERE id = ?`).get(eventId) as
       | { body: string }
       | undefined;
     if (event) {
@@ -267,7 +291,7 @@ export class ThreadStore {
 
   hasAssistantTurn(sessionId: string, uuid: string): boolean {
     return (
-      this.db
+      this.eventsDb
         .prepare(
           `SELECT 1 FROM events WHERE session_id = ? AND kind = 'assistant_message' AND json_extract(meta, '$.assistant_uuid') = ? LIMIT 1`,
         )
@@ -276,20 +300,21 @@ export class ThreadStore {
   }
 
   close(): void {
-    this.db.close();
+    this.eventsDb.close();
+    this.structuredDb.close();
   }
 
   append(
     event: Omit<SessionEvent, "id" | "seq" | "truncated">,
     opts: AppendOptions = {},
   ): SessionEvent & { project_key?: string; scope?: string; origin?: string; spilled?: number } {
-    return this.db.transaction(() => {
+    return this.eventsDb.transaction(() => {
       if (opts.origin) {
-        const existing = this.db
+        const existing = this.eventsDb
           .prepare(`SELECT id FROM events WHERE origin = ? LIMIT 1`)
           .get(opts.origin) as { id: number } | undefined;
         if (existing) {
-          return this.db
+          return this.eventsDb
             .prepare(
               `SELECT * FROM events WHERE id = ?`,
             )
@@ -307,7 +332,7 @@ export class ThreadStore {
       const storedBody = spill.spill ? spill.kept : body;
 
       const seq = this.nextSeq(event.session_id);
-      this.db
+      this.eventsDb
         .prepare(
           `INSERT INTO events (session_id, kind, ts, seq, body, meta, truncated, project_key, scope, origin, spilled)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -320,16 +345,16 @@ export class ThreadStore {
           storedBody,
           storedMetaJson,
           truncated || metaTruncated ? 1 : 0,
-          opts.projectKey ?? null,
+          opts.scope === "global" ? null : opts.projectKey ?? this.projectKey ?? null,
           opts.scope ?? "project",
           opts.origin ?? null,
           spill.spill ? 1 : 0,
         );
-      const eventId = this.db.prepare(`SELECT last_insert_rowid() AS id`).get() as { id: number };
+      const eventId = this.eventsDb.prepare(`SELECT last_insert_rowid() AS id`).get() as { id: number };
 
       if (spill.spill) {
         const sha256 = sha256Hex(body);
-        this.db
+        this.eventsDb
           .prepare(
             `INSERT INTO spills (event_id, ref, blob, sha256, created_at) VALUES (?, ?, ?, ?, ?)`,
           )
@@ -337,7 +362,7 @@ export class ThreadStore {
       }
 
       if (isIndexable(event.kind)) {
-        this.db.prepare(`INSERT INTO events_fts(rowid, body) VALUES (?, ?)`).run(eventId.id, cjkSpace(storedBody));
+        this.eventsDb.prepare(`INSERT INTO events_fts(rowid, body) VALUES (?, ?)`).run(eventId.id, cjkSpace(storedBody));
       }
 
       const eventMeta = event.meta as Record<string, unknown> | undefined;
@@ -362,7 +387,7 @@ export class ThreadStore {
         body: storedBody,
         meta: storedMetaJson ? (safeParse(storedMetaJson) as Record<string, unknown>) : undefined,
         truncated: truncated || metaTruncated,
-        project_key: opts.projectKey,
+        project_key: opts.projectKey ?? this.projectKey,
         scope: opts.scope ?? "project",
         origin: opts.origin,
         spilled: spill.spill ? 1 : 0,
@@ -371,7 +396,7 @@ export class ThreadStore {
   }
 
   transact<T>(fn: () => T): T {
-    return this.db.transaction(fn)();
+    return this.structuredDb.transaction(fn)();
   }
 
   search(query: string, opts: { limit?: number; sessionId?: string } = {}): SearchHit[] {
@@ -390,11 +415,11 @@ export class ThreadStore {
     }
     sql += ` ORDER BY score LIMIT ?`;
     params.push(opts.limit ?? 20);
-    return this.db.prepare(sql).all(...params) as unknown as SearchHit[];
+    return this.eventsDb.prepare(sql).all(...params) as unknown as SearchHit[];
   }
 
   getActiveEpisode(sessionId: string): Episode | undefined {
-    return this.db
+    return this.eventsDb
       .prepare(
         `SELECT * FROM episodes WHERE session_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1`,
       )
@@ -402,7 +427,7 @@ export class ThreadStore {
   }
 
   getLatestEpisodeWithSummary(sessionId: string): Episode | undefined {
-    return this.db
+    return this.eventsDb
       .prepare(
         `SELECT * FROM episodes WHERE session_id = ? AND summary IS NOT NULL ORDER BY id DESC LIMIT 1`,
       )
@@ -419,7 +444,7 @@ export class ThreadStore {
       return existing as unknown as Goal;
     }
     const ts = opts.ts ?? new Date().toISOString();
-    const goal = this.db
+    const goal = this.structuredDb
       .prepare(
         `INSERT INTO goals (session_id, text, status, source_event, created_at, project_key, scope, origin)
          VALUES (?, ?, 'active', ?, ?, ?, ?, ?) RETURNING *`,
@@ -429,7 +454,7 @@ export class ThreadStore {
         text,
         opts.sourceEvent ?? null,
         ts,
-        opts.projectKey ?? null,
+        opts.scope === "global" ? null : opts.projectKey ?? this.projectKey ?? null,
         opts.scope ?? "project",
         opts.origin ?? null,
       ) as Goal;
@@ -442,7 +467,7 @@ export class ThreadStore {
   }
 
   getActiveGoals(sessionId: string): Goal[] {
-    return this.db
+    return this.structuredDb
       .prepare(
         `SELECT * FROM goals WHERE session_id = ? AND status = 'active' ORDER BY id`,
       )
@@ -450,13 +475,13 @@ export class ThreadStore {
   }
 
   getFeedback(sessionId: string, limit = 5): FeedbackRow[] {
-    return this.db
+    return this.structuredDb
       .prepare(`SELECT * FROM feedback WHERE session_id = ? ORDER BY id DESC LIMIT ?`)
       .all(sessionId, limit) as FeedbackRow[];
   }
 
   getRecentEvents(sessionId: string, limit = 5): SessionEvent[] {
-    const rows = this.db
+    const rows = this.eventsDb
       .prepare(
         `SELECT id, session_id, kind, ts, seq, body, meta, truncated
          FROM events WHERE session_id = ? ORDER BY id DESC LIMIT ?`,
@@ -469,7 +494,7 @@ export class ThreadStore {
   }
 
   updateGoalStatus(sessionId: string, goalId: number, status: GoalStatus): Goal | undefined {
-    return this.db
+    return this.structuredDb
       .prepare(
         `UPDATE goals SET status = ? WHERE id = ? AND session_id = ? RETURNING *`,
       )
@@ -487,7 +512,7 @@ export class ThreadStore {
       return existing as unknown as FeedbackRow;
     }
     const ts = opts.ts ?? new Date().toISOString();
-    return this.db
+    return this.structuredDb
       .prepare(
         `INSERT INTO feedback (session_id, text, kind, source_event, created_at, project_key, scope, origin)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
@@ -498,7 +523,7 @@ export class ThreadStore {
         kind,
         opts.sourceEvent ?? null,
         ts,
-        opts.projectKey ?? null,
+        opts.scope === "global" ? null : opts.projectKey ?? this.projectKey ?? null,
         opts.scope ?? "project",
         opts.origin ?? null,
       ) as FeedbackRow;
@@ -513,7 +538,7 @@ export class ThreadStore {
     if (existing) {
       return existing as unknown as Decision;
     }
-    const dup = this.db
+    const dup = this.structuredDb
       .prepare(
         `SELECT * FROM decisions WHERE session_id = ? AND text = ? AND status NOT IN ('superseded', 'revoked') LIMIT 1`,
       )
@@ -522,7 +547,7 @@ export class ThreadStore {
       return dup;
     }
     const ts = opts.ts ?? new Date().toISOString();
-    const decision = this.db
+    const decision = this.structuredDb
       .prepare(
         `INSERT INTO decisions (session_id, text, status, source_event, created_at, updated_at, project_key, scope, origin)
          VALUES (?, ?, 'proposed', ?, ?, ?, ?, ?, ?) RETURNING *`,
@@ -533,7 +558,7 @@ export class ThreadStore {
         opts.sourceEvent ?? null,
         ts,
         ts,
-        opts.projectKey ?? null,
+        opts.scope === "global" ? null : opts.projectKey ?? this.projectKey ?? null,
         opts.scope ?? "project",
         opts.origin ?? null,
       ) as Decision;
@@ -553,7 +578,7 @@ export class ThreadStore {
     if (!origin) {
       return undefined;
     }
-    return this.db
+    return this.structuredDb
       .prepare(`SELECT * FROM ${table} WHERE origin = ? LIMIT 1`)
       .get(origin) as Record<string, unknown> | undefined;
   }
@@ -562,7 +587,7 @@ export class ThreadStore {
     sessionId: string,
     opts: { ts?: string } = {},
   ): Decision | undefined {
-    const target = this.db
+    const target = this.structuredDb
       .prepare(
         `SELECT * FROM decisions WHERE session_id = ? AND status = 'proposed' ORDER BY id DESC LIMIT 1`,
       )
@@ -577,7 +602,7 @@ export class ThreadStore {
     sessionId: string,
     opts: { ts?: string } = {},
   ): Decision | undefined {
-    const target = this.db
+    const target = this.structuredDb
       .prepare(
         `SELECT * FROM decisions WHERE session_id = ? AND status IN ('proposed', 'active') ORDER BY id DESC LIMIT 1`,
       )
@@ -593,7 +618,7 @@ export class ThreadStore {
     replacementText: string,
     opts: { sourceEvent?: number; ts?: string } = {},
   ): { superseded: Decision; replacement: Decision } | undefined {
-    const target = this.db
+    const target = this.structuredDb
       .prepare(
         `SELECT * FROM decisions WHERE session_id = ? AND status IN ('proposed', 'active') ORDER BY id DESC LIMIT 1`,
       )
@@ -602,7 +627,7 @@ export class ThreadStore {
     if (!target) {
       return undefined;
     }
-    const replacement = this.db
+    const replacement = this.structuredDb
       .prepare(
         `INSERT INTO decisions (session_id, text, status, superseded_by, source_event, created_at, updated_at)
          VALUES (?, ?, 'active', NULL, ?, ?, ?) RETURNING *`,
@@ -616,7 +641,7 @@ export class ThreadStore {
   }
 
   getActiveDecisions(sessionId: string): Decision[] {
-    return this.db
+    return this.structuredDb
       .prepare(
         `SELECT * FROM decisions WHERE session_id = ? AND status = 'active' ORDER BY id`,
       )
@@ -628,7 +653,7 @@ export class ThreadStore {
     if (!projectKey) {
       return this.getActiveDecisions(sessionId);
     }
-    return this.db
+    return this.structuredDb
       .prepare(
         `SELECT * FROM decisions
          WHERE status = 'active'
@@ -642,7 +667,7 @@ export class ThreadStore {
     if (!projectKey) {
       return this.getActiveGoals(sessionId);
     }
-    return this.db
+    return this.structuredDb
       .prepare(
         `SELECT * FROM goals
          WHERE status = 'active'
@@ -654,7 +679,7 @@ export class ThreadStore {
 
   // 反馈合并：当前会话 + 同项目 project 级 + global 级（跨项目共享），去重按 text
   getFeedbackMerged(sessionId: string, projectKey: string | undefined, limit = 5): FeedbackRow[] {
-    const rows = this.db
+    const rows = this.structuredDb
       .prepare(
         `SELECT * FROM feedback
          WHERE session_id = ? OR scope = 'global' OR (project_key = ? AND scope = 'project')
@@ -674,7 +699,7 @@ export class ThreadStore {
   }
 
   getLatestProposed(sessionId: string): Decision | undefined {
-    return this.db
+    return this.structuredDb
       .prepare(
         `SELECT * FROM decisions WHERE session_id = ? AND status = 'proposed' ORDER BY id DESC LIMIT 1`,
       )
@@ -683,11 +708,18 @@ export class ThreadStore {
 
   getDecisions(sessionId: string, status?: DecisionStatus): Decision[] {
     if (status) {
-      return this.db
+      return this.structuredDb
         .prepare(`SELECT * FROM decisions WHERE session_id = ? AND status = ? ORDER BY id`)
         .all(sessionId, status) as Decision[];
     }
-    return this.db.prepare(`SELECT * FROM decisions WHERE session_id = ? ORDER BY id`).all(sessionId) as Decision[];
+    return this.structuredDb.prepare(`SELECT * FROM decisions WHERE session_id = ? ORDER BY id`).all(sessionId) as Decision[];
+  }
+
+  // 血缘分库（B④）：任一端 ∈ {goal,decision,feedback} → 结构化库；两端均 ∈ {event,file,tool} → 事件库
+  private lineageDb(srcType: string, dstType: string): Database.Database {
+    const srcEvent = srcType === "event" || srcType === "file" || srcType === "tool";
+    const dstEvent = dstType === "event" || dstType === "file" || dstType === "tool";
+    return srcEvent && dstEvent ? this.eventsDb : this.structuredDb;
   }
 
   addLineageEdge(
@@ -699,7 +731,8 @@ export class ThreadStore {
     edgeType: string,
     opts: { ref?: string; confidence?: number; ts?: string } = {},
   ): void {
-    this.db
+    const db = this.lineageDb(srcType, dstType);
+    db
       .prepare(
         `INSERT INTO lineage_edges (session_id, src_type, src_id, dst_type, dst_id, ref, edge_type, confidence, ts)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -722,7 +755,9 @@ export class ThreadStore {
   }
 
   getRelatedEdges(sessionId: string, type: string, id: number): LineageNeighbor[] {
-    return this.db
+    const db =
+      type === "event" || type === "file" || type === "tool" ? this.eventsDb : this.structuredDb;
+    return db
       .prepare(
         `SELECT * FROM lineage_edges
          WHERE session_id = ? AND (src_type = ? AND src_id = ? OR dst_type = ? AND dst_id = ?)
@@ -732,7 +767,7 @@ export class ThreadStore {
   }
 
   getEventsForFile(sessionId: string, filePath: string): LineageNeighbor[] {
-    return this.db
+    return this.eventsDb
       .prepare(
         `SELECT * FROM lineage_edges
          WHERE session_id = ? AND dst_type = 'file' AND ref = ?
@@ -749,7 +784,7 @@ export class ThreadStore {
   ): Decision {
     assertTransition(decision.status, to);
     const updatedAt = ts ?? new Date().toISOString();
-    return this.db
+    return this.structuredDb
       .prepare(
         `UPDATE decisions SET status = ?, superseded_by = ?, updated_at = ? WHERE id = ? RETURNING *`,
       )
@@ -757,7 +792,7 @@ export class ThreadStore {
   }
 
   private nextSeq(sessionId: string): number {
-    const row = this.db
+    const row = this.eventsDb
       .prepare(`SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM events WHERE session_id = ?`)
       .get(sessionId) as { seq: number };
     return row.seq;
@@ -766,13 +801,13 @@ export class ThreadStore {
   private updateEpisode(sessionId: string, seq: number, kind: EventKind, ts: string): void {
     if (kind === "user_message") {
       this.closeActiveEpisode(sessionId, seq - 1);
-      this.db
+      this.eventsDb
         .prepare(
           `INSERT INTO episodes (session_id, seq_start, status, created_at) VALUES (?, ?, 'active', ?)`,
         )
         .run(sessionId, seq, ts);
     } else {
-      this.db
+      this.eventsDb
         .prepare(`UPDATE episodes SET seq_end = ? WHERE session_id = ? AND status = 'active'`)
         .run(seq, sessionId);
     }
@@ -786,7 +821,7 @@ export class ThreadStore {
     if (!episode) {
       return;
     }
-    const rows = this.db
+    const rows = this.eventsDb
       .prepare(
         `SELECT body FROM events WHERE session_id = ? AND seq BETWEEN ? AND ? ORDER BY seq`,
       )
@@ -795,12 +830,21 @@ export class ThreadStore {
       .map((r) => r.body)
       .join("\n")
       .slice(0, EPISODE_SUMMARY_CHARS);
-    this.db
+    this.eventsDb
       .prepare(
         `UPDATE episodes SET seq_end = ?, summary = COALESCE(summary, ?) WHERE id = ? AND session_id = ?`,
       )
       .run(seqEnd, summary, episode.id, sessionId);
   }
+}
+
+function openDb(path: string, schema: string, kind: "events" | "structured"): Database.Database {
+  const db = new Database(path);
+  db.pragma("journal_mode = WAL");
+  db.pragma("busy_timeout = 5000");
+  db.exec(schema);
+  ensureSchema(db, kind);
+  return db;
 }
 
 function toFtsQuery(query: string): string {

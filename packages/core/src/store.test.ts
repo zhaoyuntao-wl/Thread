@@ -9,7 +9,7 @@ let store: ThreadStore;
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "thread-"));
-  store = new ThreadStore({ path: join(dir, "test.db") });
+  store = new ThreadStore({ eventsPath: join(dir, "events.db"), structuredPath: join(dir, "structured.db"), projectKey: "test-proj" });
 });
 
 afterAll(() => {
@@ -165,7 +165,7 @@ describe("ThreadStore", () => {
       { origin: "qoder://transcript#uuid-1" },
     );
     expect(e2.id).toBe(e1.id);
-    const count = store.db.prepare("SELECT COUNT(*) AS c FROM events WHERE origin = ?").get("qoder://transcript#uuid-1") as { c: number };
+    const count = store.eventsDb.prepare("SELECT COUNT(*) AS c FROM events WHERE origin = ?").get("qoder://transcript#uuid-1") as { c: number };
     expect(count.c).toBe(1);
   });
 

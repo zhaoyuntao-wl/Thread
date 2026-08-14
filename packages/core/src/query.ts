@@ -122,13 +122,13 @@ export function queryEvents(store: ThreadStore, opts: StructuredQueryOptions): S
   const whereSql = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
 
   if (opts.count) {
-    const row = store.db.prepare(`SELECT COUNT(*) AS c FROM events ${whereSql}`).get(...params) as { c: number };
+    const row = store.eventsDb.prepare(`SELECT COUNT(*) AS c FROM events ${whereSql}`).get(...params) as { c: number };
     return { status: row.c > 0 ? "found" : "not-found", results: [], count: row.c };
   }
 
   const order = opts.order === "asc" ? "ASC" : "DESC";
   const limit = Math.min(opts.limit ?? 20, 50);
-  const rows = store.db
+  const rows = store.eventsDb
     .prepare(
       `SELECT id, session_id, kind, ts, seq, body, truncated FROM events ${whereSql} ORDER BY ts ${order}, id ${order} LIMIT ?`,
     )

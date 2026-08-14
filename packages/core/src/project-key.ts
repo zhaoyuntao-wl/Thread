@@ -10,13 +10,16 @@ export function deriveProjectKey(cwd: string): string {
   return normalized;
 }
 
-export function deriveProjectKeyHash(cwd: string): string {
-  const key = deriveProjectKey(cwd);
+export function hashProjectKey(key: string): string {
   let hash = 0;
   for (let i = 0; i < key.length; i++) {
     hash = (hash * 31 + key.charCodeAt(i)) | 0;
   }
   return (hash >>> 0).toString(36);
+}
+
+export function deriveProjectKeyHash(cwd: string): string {
+  return hashProjectKey(deriveProjectKey(cwd));
 }
 
 function resolveGitRoot(cwd: string): string | undefined {

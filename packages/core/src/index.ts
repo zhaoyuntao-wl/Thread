@@ -6,3 +6,4 @@ export * from "./light-confirm.js";
 export * from "./query.js";
 export * from "./governor.js";
 export * from "./project-key.js";
+export * from "./migrate.js";
