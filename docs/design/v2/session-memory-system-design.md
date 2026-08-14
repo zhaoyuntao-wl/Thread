@@ -115,6 +115,13 @@
 - **新增洞察**：① Thread 差异化收窄为六项——跨压缩保真、跨会话状态机、确定性抽取、场景级验证体系、一体化治理、跨底座；其余维度都有占位者。② 流派分化 → 可共存：memento 卖 seam 不卖仓库（其 `ctx.memory` 可成为 Thread 知识轨宿主）；Thread 的保真策略层在它们之上，不与仓库派正面冲突。③ 两处可借鉴：memento 借 dsh 原生日志做审计（dsh 适配器直接消费 session 日志即可，省自建）；evolve 的 git-branch 跨设备同步 = "多机记忆"痛点，Thread 未覆盖（记入 D 生态维度 backlog）。
 - **结论**：矩阵主体成立，两处修正、一处升级。护城河从"竞品没有"变为"竞品没有的层级"——**场景级保真度量仍是无人区**。
 
+**主流底座生态补足调研（2026-08-14，底座不能只看自身，须查各自社区）**：
+
+- **全景**：① Claude Code / Codex / Cursor / Gemini 共享 MCP 生态——已出现跨底座记忆层：codebase-memory-mcp（38.9k★，代码图谱）、marm-memory（329★，跨 claude/codex/gemini/qwen 的 3-in-1：会话记忆+代码图谱+概念图谱，60 秒安装）、krusch-context-mcp（71★，episodic memory + steering nudges + ACM 压缩/淘汰/token 审计）、Mem0 / Agentic Memory Extension / ECC（知识记忆）——⚠️ 部分触达残缺口；② Qoder 生态较小、无对等记忆补足；③ workbuddy 办公侧、无开放插件 SDK；④ dsh 前文已述（~30 插件、无保真度量）。
+- **三个跨底座对手事实**：marm-memory = 模型驱动存储（会话摘要/合并）+ 图谱，非确定性无损捕获、无压缩边界挂接（仅库内 compaction candidates）、无状态机；krusch-context-mcp = steering nudges 即状态卡雏形，但向量检索 + 时间衰减（非状态机）、PostgreSQL+pgvector 重依赖、无验证体系；codebase-memory-mcp = 代码知识红海（38.9k★）。
+- **修正后的真空白**：差异化六项收窄为**四项核心**——确定性无损捕获、跨压缩边界保真、决策/目标状态机、场景级验证体系（主流生态含 dsh 全部无人区）。两项调整：① 跨底座主张从"记忆层"改述为"**会话保真层**"（marm 已占记忆层话语）；② 知识轨定位更明确 = **集成 marm / codebase-memory-mcp 为 provider，绝不自建**（38.9k★ 红海）。
+- **战略含义**：Thread 与 marm 类产品**共存甚至集成**（保真层在上、知识图谱在下，marm 的 `ctx.memory` / MCP 均可作知识轨宿主）；主流底座接驳优先走 MCP 通用通道（marm 已验证 60 秒可达）+ 各底座原生 hook 增强（Claude/Codex hooks、dsh inject）。
+
 **待验证点（批 B 后 dsh spike，改自原双 spike）**：① MCP overlay 零代码挂载实测（查询通道）；② 原生插件 spike——`session/event` 订阅 / `agent.inject()` / `ctx.tools` 三接缝与文档一致性 + **inject 内容是否进入 compaction 摘要上下文**（Qoder 上同问题死路，dsh 上可测）；③ dsh 同任务编码实测（地基打分，须达中位）；④ 钉版本策略——preview 破坏性变更下锚定哪些核心不变量（session 日志 / 事件 / inject / pre-step）。原 Pi/OMP spike 降级为可选。
 
 ---
