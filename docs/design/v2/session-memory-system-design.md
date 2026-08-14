@@ -67,11 +67,11 @@
 - **oh-my-pi**（can1357，从 Pi fork，Rust 引擎 ~55k LOC，周更）：电池全包路线——32 工具（LSP/DAP/Hashline/browser/web_search）、40+ provider 角色路由、sub-agent 编排。记忆相关：`mnemopi`（SQLite 知识记忆引擎 remember/recall，可选本地 ONNX embedding + 远程 LLM，确定性兜底——**知识记忆，与 Thread 会话保真不同向**）；`snapcompact`（丢弃历史渲染成 PNG 位图帧让视觉模型读回，确定性零 LLM 调用——**保细节，与 Thread 保结构互补**）；包列表含 `metaharness`（疑似 harness 接入点，待验证）。编码能力中位以上。
 - **Qoder CLI**：第一参考适配器与现网狗粮（批 A/B① 已实证三弱能力 + 压缩边界 hook）。
 
-**Thread 定位收敛——会话保真策略层，三条边界**：
+**Thread 定位收敛——会话保真策略层，边界（2026-08-14 晚修订为"两条半"）**：
 
-- 不做知识记忆（mnemopi/Qoder auto-memory 的地盘，重复即浪费）
+- 知识记忆**集成不重造**（原"不做"修订）：采纳 mnemopi 成熟模式（SQLite + 可选 embedding，BM25 确定性兜底）作为知识轨，不自研 LLM 蒸馏——"全面"指痛点链覆盖而非功能堆叠
 - 不做压缩保细节（底座 compaction / snapcompact 的地盘）
-- 只做状态结构：目标/决策状态机 + 血缘 + O(1) 状态卡 + 压缩边界 checkpoint
+- 核心仍是状态结构：目标/决策状态机 + 血缘 + O(1) 状态卡 + 压缩边界 checkpoint + 全链路引用（摘要是索引、原文是真相）
 
 **护城河判断**：不靠速度（can1357 周更产出下时间差无意义），靠**窄而深 + 验证体系**——漏召回/误判/漂移的度量与回归集是保真层命门，追功能的底座不会投入；生态位 = Pi 哲学不内置记忆、OMP 重心在工具链，会话保真是真空缺。**dsh 风险注**：官方未来可能自建跨会话记忆（goal 目前仅同会话、mcp-memory 默认关闭是窗口期信号）——应对 = 窄而深 + 验证体系 + 快速交付 t-dsh，在官方填坑前成为该位事实标准。
 
@@ -93,7 +93,21 @@
 
 - **活跃度**：dsh 发布 ~16 小时即 67.2k stars / 5,674 forks；无 releases（preview 直推 master）、open_issues=0（走 discussions）。生态基建已成型：`dsh plugin add` 安装命令、`create-dsh-plugin` 脚手架（npm 周下载 135）、dsh-find-plugin 发现工具、两个 awesome 列表（精选 145 插件、入场门票 = `dsh.bundle` manifest）、社区发行版 oh-dsh。topic `dsh-plugin` 下 1004 仓库，头部插件 919★（web-ui）/ 854★（modlens 视觉），全部近几小时发布。
 - **直接竞品（记忆 ~30 个 / 会话类 64 个）**：① **Jesse-njx/dsh-memory（1★）——理念最接近**："cited memory over lossless session log"、"summaries are an index into ground truth, never the truth"——无损日志 + 引用回拉与 Thread 同源；但后置 LLM 蒸馏（非确定性）、markdown 文件存储（无 BM25/状态机）、无压缩边界整合、无验证体系。② PerryLink/dsh-memento（1★）：bounded/layered/approval-gated/auditable 跨会话记忆。③ csyangwen/dsh-memory-evolve（24★，记忆类最高星）：跨会话长期记忆 + 自进化（偏知识记忆）。④ ben7am1n/dsh-memory（1★，跨会话 SQLite）；Tieboyh/dsh-session-search（2★，检索方向）；modusensus/dsh-mneme（2★，唯一带测试：106 个）。官方三例（Memorix/Reference Memory/Engram）= 知识记忆，不冲突。
-- **战略含义**：① 窗口比预想紧——真空缺以小时计，16 小时 30 个记忆插件；但竞品全部 1~24★、无保真度量、无验证体系，Thread 的"窄而深 + 验证体系"仍是差异化，"第一个做"的红利在缩水。② **命名占位需快**：`dsh-thread` 在 npm / GitHub 均未占用（调研当日确认），应尽快 npm 占位 dsh-thread / t-dsh / thread-mcp 三包名。③ 发布提速：spike 与社区亮相并行，不等 spike 完成。④ **持续跟踪 Jesse-njx/dsh-memory**——若补上验证体系即成正面对手；Thread 的确定性 MVP（零 LLM 蒸馏）+ 结构化状态机 + 跨底座适配器仍是差异。
+- **战略含义**：① 窗口比预想紧——真空缺以小时计，16 小时 30 个记忆插件；但竞品全部 1~24★、无保真度量、无验证体系，Thread 的"窄而深 + 验证体系"仍是差异化，"第一个做"的红利在缩水。② **命名占位**：`dsh-thread` 在 npm / GitHub 均未占用（调研当日确认）——占位 ≠ 发布，待产品包络定稿后再动，随时可做。③ ~~发布提速：spike 与社区亮相并行~~（**同日被推翻**：真正的竞争力不是先发，谋定而后动——社区 30 个记忆插件全是急就章，恰证先发不构成竞争力；改走痛点矩阵 → 产品包络 → 再动工，见下节）。④ **持续跟踪 Jesse-njx/dsh-memory**——若补上验证体系即成正面对手；Thread 的确定性 MVP（零 LLM 蒸馏）+ 结构化状态机 + 跨底座适配器仍是差异。
+
+**痛点全景与产品包络（2026-08-14 定案：谋定而后动）**：
+
+- **原则**：真正的竞争力不是先发，是**痛点链全覆盖 + 成熟度**——发布方着急发布、用户为一个痛点装一个新插件，远不如一个相对成熟全面的产品让用户卸载掉多个而只用其一。产品验收标准 = "**卸载好几个，只用这一个**"。
+- **痛点全景 × 已有解 × 残缺口（四维度）**：
+  - A 会话内：压缩失真 → 已有解 = 全底座 compaction，残缺口 = **跨压缩状态保真**（状态卡 + checkpoint + 检索回拉，Thread 实机已验证）；上下文成本 → 已有解 = 阈值压缩，残缺口 = 状态卡替代历史重放的目标架构；压缩时机焦虑 → 残缺口 = 上下文压力导航。
+  - B 会话间：新会话失忆 → 散装解 = CLAUDE.md 静态 / dsh-goal 仅同会话 / 蒸馏插件，残缺口 = **结构化跨会话继承**（决策状态机）；交接断档 → 散装 = powercontext handoff / agent-messaging，残缺口 = 确定性交接卡；换底座记忆作废 → 散装 = 一次性迁移（claude-bridge），残缺口 = **底座无关记忆层**（适配器矩阵）。
+  - C 记忆本体：知识记忆 → Memorix / Engram / mnemopi / Mem0 **已解决较好 = 红海，取长对象**；可信度（蒸馏幻觉 / 不可溯源）→ 散装 = dsh-memory 引用 / memento 审计 / mneme 可编辑，各不相通，残缺口 = **确定性抽取 + 全链路引用 + 验证体系**；治理（过期/冲突/删除）→ 残缺口 = 状态机 superseded + 治理工具；检索质量 → 残缺口 = 带引用检索（摘要是索引、原文是真相）。
+  - D 生态：碎片化（一个痛点一个插件，多库多词汇）→ **无人解决 = 一体化机会**；配置成本（embedding/密钥/后台任务）→ 残缺口 = 确定性零配置。
+- **取长（集成不重造）**：知识记忆轨采纳 mnemopi 模式（SQLite + 可选 embedding，BM25 确定性兜底）；引用回拉吸收 dsh-memory 理念；可编辑性吸收 mneme；交接吸收 powercontext 概念。
+- **补短（自研核心）**：跨压缩保真、跨会话状态机、确定性抽取、验证体系、多底座适配、一体化治理。
+- **"卸载好几个"对应表**：装 Thread 一个 → 卸 dsh-memory（引用回拉）+ memento（审计）+ session-search（检索）+ memory-evolve 知识轨 + agent-messaging（交接）——五套存储与工具词汇收敛为一。
+- **边界修订**：三条边界改"两条半"——知识记忆"不做"→"集成成熟模式、不自研蒸馏"；压缩保细节仍不做；核心仍是状态结构 + 保真。**"全面"= 痛点链覆盖，不是功能堆叠——每条轨都过验证体系**，否则重蹈竞品覆辙。
+- **规划影响**：批 B 主线不变；booster 包扩为"一体化记忆轨"（原 ②③④ + 知识轨 + 引用回拉）；发布节奏 = 痛点矩阵定稿 → 产品包络定稿 → 再动工；npm 占位随时可做，不急。
 
 **待验证点（批 B 后 dsh spike，改自原双 spike）**：① MCP overlay 零代码挂载实测（查询通道）；② 原生插件 spike——`session/event` 订阅 / `agent.inject()` / `ctx.tools` 三接缝与文档一致性 + **inject 内容是否进入 compaction 摘要上下文**（Qoder 上同问题死路，dsh 上可测）；③ dsh 同任务编码实测（地基打分，须达中位）；④ 钉版本策略——preview 破坏性变更下锚定哪些核心不变量（session 日志 / 事件 / inject / pre-step）。原 Pi/OMP spike 降级为可选。
 
