@@ -81,6 +81,14 @@
 - dsh 三形态（新旗舰，替代 t-pi/t-omp）：① **day-0 MCP overlay**——Thread 现成 MCP server 经 `--patch` 挂载即得 `mcp__thread__query_session_memory`，零代码查询通道（官方 examples/mcp-memory 同款模式）；② **`dsh-thread` 原生插件 bundle**——订阅 `session/event` 建结构化表 + BM25（采集）、`agent.inject()` 状态卡（注入）、`ctx.tools` 查询工具（查询）、可选 `agent/pre-step` 压缩边界保护（booster ① 在 Qoder 死路，在 dsh 原生）；③ **t-dsh 参考发行版**（profile = dsh bundles + thread bundle，`dsh --profile thread`）——演示"完全接管"目标架构的技术旗帜。**"完全接管"不是保真价值的必要条件**——旁路观测 + 注入已交付 80% 价值，dsh 原生接缝可到 90%+ 而不接管。
 - pi / OMP：降级为适配器矩阵 backlog，不再作为旗舰。
 
+**开源发布路径与社区策略（2026-08-14 定案）**：
+
+- **双身份发布**：社区内身份 = `dsh-thread` 插件（`dsh-plugin` topic + npm bundle + Discord 入场，发现漏斗 = dsh 用户 → topic/Discord → 装插件 → 效果立现）；独立身份 = Thread 仓库（权威源：设计文档 / 回归集 / 7 条价值主张佐证 + 适配器矩阵证据）——**不做"dsh 的一个插件"**，适配器矩阵是官方自建记忆风险下的退路。
+- **交付三件套（npm）**：`dsh-thread`（bundle，社区主载体）＋ `t-dsh`（profile，`dsh --profile thread` 一键旗舰）＋ `thread-mcp`（独立 MCP server 包，全底座通用查询通道，dsh 上 `--patch` overlay 零代码）。命名遵守 dsh 惯例（对齐 dsh-goal / dsh-compaction-basic）。
+- **发布节奏**：跟随 dsh release train——preview 破坏性变更下版本钉定 + compat 矩阵（CI 对 dsh 多版本回归），只锚定核心不变量（session 日志 / inject / tools / pre-step——有运行时 "Model-visible means logged" 保护，最稳）。
+- **社区目标分层**：M1 上 `dsh-plugin` topic + Discord 亮相 → M2 稳定后争取官方互链（examples/mcp-memory 第四行——官方定位"互操作示例、非背书"，先以稳定版本入场）→ 佐证体系新增 dsh 实测数据（跨压缩保真、inject 进摘要上下文）。
+- **不变**：monorepo、设计文档权威、evals 回归集、Qoder 狗粮循环、适配器矩阵主线。
+
 **待验证点（批 B 后 dsh spike，改自原双 spike）**：① MCP overlay 零代码挂载实测（查询通道）；② 原生插件 spike——`session/event` 订阅 / `agent.inject()` / `ctx.tools` 三接缝与文档一致性 + **inject 内容是否进入 compaction 摘要上下文**（Qoder 上同问题死路，dsh 上可测）；③ dsh 同任务编码实测（地基打分，须达中位）；④ 钉版本策略——preview 破坏性变更下锚定哪些核心不变量（session 日志 / 事件 / inject / pre-step）。原 Pi/OMP spike 降级为可选。
 
 ---
