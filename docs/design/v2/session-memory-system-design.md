@@ -109,6 +109,12 @@
 - **边界修订**：三条边界改"两条半"——知识记忆"不做"→"集成成熟模式、不自研蒸馏"；压缩保细节仍不做；核心仍是状态结构 + 保真。**"全面"= 痛点链覆盖，不是功能堆叠——每条轨都过验证体系**，否则重蹈竞品覆辙。
 - **规划影响**：批 B 主线不变；booster 包扩为"一体化记忆轨"（原 ②③④ + 知识轨 + 引用回拉）；发布节奏 = 痛点矩阵定稿 → 产品包络定稿 → 再动工；npm 占位随时可做，不急。
 
+**竞品深度校验（2026-08-14，深读 6 家竞品 README）**：
+
+- **核对结果**：① 知识记忆=红海 ✅（mneme 向量搜索+Markdown 镜像 / evolve 五轨 / Engram/Memorix / powercontext 全套 memory API）。② 可信度=散装 ✅ 但升级——memento 已实现"协议+审批门+审计回放"（66 测试、ARCHITECTURE.md/AGENTS.md 纪律，"Model-visible ⟺ logged" 与 Thread 同哲学）；散装仍成立（各家各搞）。③ 检索残缺口 ⚠️ 被部分占据——session-search 已支持 dsh/codex/claude/pi/opencode 只读扫描（无索引、纯子串、无引用、无状态）。④ 交接散装 ✅（powercontext 完整 handoff API：activate/prepare/finalize/commit/continue）。⑤ ~~竞品无验证体系~~ ❌ 修正——mneme 140 测试（此前 106，在涨）、memento 66 测试、CI 都在；但都停在单元测试层，无场景级保真回归/度量。⑥ ~~真空缺~~ ❌ 修正——五个流派全有占位者：seam 派（memento）/ 聚合器派（evolve）/ 主权派（mneme）/ 引用派（dsh-memory）/ 只读检索派（session-search）。
+- **新增洞察**：① Thread 差异化收窄为六项——跨压缩保真、跨会话状态机、确定性抽取、场景级验证体系、一体化治理、跨底座；其余维度都有占位者。② 流派分化 → 可共存：memento 卖 seam 不卖仓库（其 `ctx.memory` 可成为 Thread 知识轨宿主）；Thread 的保真策略层在它们之上，不与仓库派正面冲突。③ 两处可借鉴：memento 借 dsh 原生日志做审计（dsh 适配器直接消费 session 日志即可，省自建）；evolve 的 git-branch 跨设备同步 = "多机记忆"痛点，Thread 未覆盖（记入 D 生态维度 backlog）。
+- **结论**：矩阵主体成立，两处修正、一处升级。护城河从"竞品没有"变为"竞品没有的层级"——**场景级保真度量仍是无人区**。
+
 **待验证点（批 B 后 dsh spike，改自原双 spike）**：① MCP overlay 零代码挂载实测（查询通道）；② 原生插件 spike——`session/event` 订阅 / `agent.inject()` / `ctx.tools` 三接缝与文档一致性 + **inject 内容是否进入 compaction 摘要上下文**（Qoder 上同问题死路，dsh 上可测）；③ dsh 同任务编码实测（地基打分，须达中位）；④ 钉版本策略——preview 破坏性变更下锚定哪些核心不变量（session 日志 / 事件 / inject / pre-step）。原 Pi/OMP spike 降级为可选。
 
 ---
