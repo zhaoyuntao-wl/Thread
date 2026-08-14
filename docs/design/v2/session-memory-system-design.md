@@ -32,7 +32,7 @@
 
 ### 批 B：记忆层能力（约 3~5 天）
 
-按序推进，① 优先级最高：
+> 编号已重排（见「产品包络定稿」章节批 B 重排）：原 2~6 项 + 新增 B⑦ 场景级保真回归集；存储治理源头控制内嵌 B②。下列各条按重排后顺序推进。
 
 1. **上下文裁剪接入（O(1) 落地）**：方案已由批 A 定案（底座可控路径成立）——实现 = 挂 PreCompact/PostCompact hook：PreCompact 时状态卡落库防丢，PostCompact 后经 hookSpecificOutput 重新注入状态卡，细节靠检索拉回；辅以 `model.maxSessionTurns` / `contextWindow` 阈值定制。验收：① 长会话实测 ctx 有界——每轮上下文长度序列从 transcript 条目 + `compact_boundary` 的 compactMetadata 锚点重建（底座不落 per-turn usage，实测确认），确定性可量化；② 同任务 token 消耗对比——脚本化回归场景（固定任务）裁剪接入前后各跑 N 次取中位数对比总 token，模型输出非确定，故作为趋势性佐证而非精确值
    - **spike 实测 + 实机验证（2026-08-14，本机 `/compact`）**：PreCompact 载荷 = session_id/transcript_path/cwd/hook_event_name/model/trigger/custom_instructions（无摘要）；PostCompact 载荷 = 同上 + `compact_summary`（替换历史的摘要全文）、`trigger` ∈ manual/auto。**接线已落地**：① PostCompact → 新增 `compact_checkpoint` 事件入流水（body=摘要全文，meta=trigger/model）——摘要即压缩边界血缘标记，可检索（实机落库验证通过，trigger=manual）；② PreCompact 不需接线——事件流水已持续采集（UserPromptSubmit/PreToolUse/PostToolUse/Stop 全挂 capture），DB 先于压缩已是最新。**实机结论**：PostCompact 的 hookSpecificOutput 状态卡注入不被底座采纳（压缩边界后无状态卡），该接线已移除；PreCompact 同结论（批 B 第 6 项 ① spike，2026-08-14 实测）；状态卡回归由 UserPromptSubmit 每轮注入保证（手动压缩后下一条用户消息即恢复），auto-compact 续写首轮由压缩摘要的 Primary Request 段兜底——目标不漂移保障成立
@@ -121,6 +121,23 @@
 - **三个跨底座对手事实**：marm-memory = 模型驱动存储（会话摘要/合并）+ 图谱，非确定性无损捕获、无压缩边界挂接（仅库内 compaction candidates）、无状态机；krusch-context-mcp = steering nudges 即状态卡雏形，但向量检索 + 时间衰减（非状态机）、PostgreSQL+pgvector 重依赖、无验证体系；codebase-memory-mcp = 代码知识红海（38.9k★）。
 - **修正后的真空白**：差异化六项收窄为**四项核心**——确定性无损捕获、跨压缩边界保真、决策/目标状态机、场景级验证体系（主流生态含 dsh 全部无人区）。两项调整：① 跨底座主张从"记忆层"改述为"**会话保真层**"（marm 已占记忆层话语）；② 知识轨定位更明确 = **集成 marm / codebase-memory-mcp 为 provider，绝不自建**（38.9k★ 红海）。
 - **战略含义**：Thread 与 marm 类产品**共存甚至集成**（保真层在上、知识图谱在下，marm 的 `ctx.memory` / MCP 均可作知识轨宿主）；主流底座接驳优先走 MCP 通用通道（marm 已验证 60 秒可达）+ 各底座原生 hook 增强（Claude/Codex hooks、dsh inject）。
+
+### 产品包络定稿（2026-08-14 定案）
+
+**定位**：跨底座会话保真层——确定性无损捕获 + 跨压缩边界保真 + 决策/目标状态机 + 场景级验证体系；知识记忆集成第三方 provider。
+
+**分层架构**：适配器矩阵（接驳层：dsh 原生插件=旗舰 / Claude·Codex=MCP+hooks / Qoder=hooks 狗粮）→ 保真核心（底座无关：事件流水=无损写时建索引 → 结构化表=目标/决策状态机+反馈表+血缘 → BM25 检索=带引用回拉 → 状态卡注入=O(1) 分层优先级）→ 集成层（provider 抽象：知识记忆=marm/codebase-memory-mcp 集成；压缩=底座 compaction checkpoint 订阅；语义检索=可选 embedding，BM25 确定性兜底）。
+
+**功能边界（做 9 / 不做 4）**：做 ① 确定性无损捕获 ② 跨压缩 checkpoint + 状态卡回归 + 引用回拉 ③ 决策/目标状态机 ④ 场景级验证体系（回归集+度量+eval 工具链）⑤ 状态卡注入（预算约束：CLAUDE.md 200 行 + workbuddy 分层裁决）⑥ 跨会话继承（会话内>项目>用户>全局）⑦ 一体化治理（superseded/冲突裁决/审计溯源）⑧ 确定性交接卡 ⑨ 存储治理（源头控制）。不做：压缩本身 / 知识图谱·代码图谱自建 / LLM 蒸馏 / 语义检索自建。
+
+**存储治理（2026-08-14 补充定案，用户提"存储快速膨胀"）**：
+- 源头控制（写时即控，内嵌 B②）：① **大正文 spill**——事件只存元数据+摘要+引用，大块原文 spill 文件或直接引用底座日志（dsh 订阅原生日志**零正文复制**；Qoder transcript 为底座资产，capture 存结构化影子）；② **索引分层**——FTS5 只索引轻量文本（用户消息/agent 文本/决策/反馈），工具结果大块不建全文索引，检索按引用回拉原文；③ 项目分库天然隔离。
+- 冷热归档（**延后**）：B⑤ 度量后用实测膨胀率定阈值（天数/GB），再设计冷分区（VACUUM INTO / zstd 归档 + 摘要级二级索引，参考 dsh spill 机制 + session-search 帧级解码）。MVP 单项目体积可管理，不预建。
+- 无损语义："无损"= 细节可检索回拉，非全文复制两份；原文留底座日志，Thread 存索引影子 + 引用。
+
+**批 B 重排（7 项，替代原编号）**：1️⃣ B② 作用域与命名空间全量落地（含存储治理源头控制内嵌）→ 2️⃣ B③ 跨会话继承（轻量版）→ 3️⃣ B④ 串库迁移 → 4️⃣ B⑤ 度量埋点（产出膨胀率数据 → 触发冷热归档决策）→ 5️⃣ B⑥ 一体化记忆轨（反馈拦截 → 压力导航 → 交接卡 → 知识轨 provider 集成 → 引用回拉）→ 6️⃣ **B⑦（新）场景级保真回归集**（跨压缩保真场景入回归——护城河本体）→ 7️⃣ dsh spike 并行（MCP overlay + 原生插件三接缝）。
+
+**开放项（待拍板）**：① 知识轨 provider 首选——建议两者皆可配、MVP 默认本地 BM25 兜底；② 语义检索是否可选集成——建议延后、不影响 MVP；③ 交接卡落盘——建议 `.thread/handoff.md`（与 sms.db 同目录、项目隔离）。
 
 **待验证点（批 B 后 dsh spike，改自原双 spike）**：① MCP overlay 零代码挂载实测（查询通道）；② 原生插件 spike——`session/event` 订阅 / `agent.inject()` / `ctx.tools` 三接缝与文档一致性 + **inject 内容是否进入 compaction 摘要上下文**（Qoder 上同问题死路，dsh 上可测）；③ dsh 同任务编码实测（地基打分，须达中位）；④ 钉版本策略——preview 破坏性变更下锚定哪些核心不变量（session 日志 / 事件 / inject / pre-step）。原 Pi/OMP spike 降级为可选。
 
