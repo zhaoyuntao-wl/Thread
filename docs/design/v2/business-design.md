@@ -101,6 +101,8 @@ SessionStart（可无采集）
 
 **验证**：格式有效性入回归集（decision-chain / goal-retention 在格式变更后仍通过）；关注度提升以狗粮观察为准（模型是否遵循 active 决策）。
 
+**注入隔离（安全底线，2026-08-14 补充）**：状态卡/检索片段内容来自事件流水，用户消息可能含恶意指令——注入内容 = **数据不是指令**：XML 区域标签 + JSON 转义（`\"`/控制字符）+ 与底座指令区物理隔离（位于注入区而非系统指令区）；检索片段按数据处理，不拼接为指令。防存储型提示注入。
+
 ### 2.4 MCP 工具契约（query_session_memory）
 
 - 输入：`query`（必填，关键词/短语）/ `limit`（默认 20，≤50）/ `token_budget`（默认 4000）/ `session_id`（可选，缺省最近活跃会话）/ `project_key`（可选，B② 后）
@@ -125,7 +127,7 @@ SessionStart（可无采集）
 - **多项目隔离**（B②）：project_key 推导规则 = 仓库根目录 hash（`git rev-parse --show-toplevel` 的规范路径）；查询合并 project + global；非当前项目硬过滤；状态卡合并显示
 - **隐私与安全**：全本地 SQLite（WAL）；结构化表无凭证明文；hook 载荷含路径等本地信息不出库；适配器不做任何云端同步（多机同步非 MVP，D 生态 backlog）
 - **降级矩阵**：采集失败 → 主路径不受影响（异步）；索引失败 → append 回滚（不产生半索引）；底座注入不采纳（Qoder hookSpecificOutput）→ 状态卡经 UserPromptSubmit 兜底；压缩无 checkpoint → 摘要仅靠底座自身（记录缺漏到 metrics）
-- **度量与反馈**：metrics 表埋点（recall_miss / repeat_question / correction / storage_growth）；漏召回/误判记录入回归集场景（狗粮纪律）
+- **度量与反馈**：metrics 表埋点（recall_miss / repeat_question / correction / storage_growth / **injection_follow_rate**——active 决策遵循率，轻确认旁路记录 + 人工抽查采样）；漏召回/误判记录入回归集场景（狗粮纪律）；遵循率反哺状态卡格式迭代（A/B：纯 Markdown vs 分级格式）
 
 ## 5. 配置面
 
@@ -163,3 +165,13 @@ SessionStart（可无采集）
 **预期排序**：dsh ≥ Qoder > Claude ≈ Codex（spike / 适配器落地后修正）。产出：适配度矩阵 = 投入优先级输入（优先做适配度最高且受众最大的底座）。
 
 **参数驱动**：适配器声明 `adapterParams`（spill 阈值、状态卡预算、注入位置策略、幂等键来源）；core 读取，无声明用目标基线。
+
+## 7. 成本模型刷新（2026-08-14 补充）
+
+v1 §13 基于旧架构，包络升级后刷新（零 LLM 核心 + 状态卡预算 + 引用回拉）：
+
+- **每轮成本 = 状态卡注入 token（预算上限）+ 检索调用 token（模型侧，可选）**；核心路径无 LLM 调用
+- 状态卡预算默认 200 行 ≈ 每轮数百 token（目标基线，可配）；对照项 = 底座全量历史重放（随会话线性膨胀，压缩前可达数十万 token/轮）——**状态卡固定成本 vs 全量重放线性成本**
+- 存储：SQLite 一次性磁盘开销 + 增量（受存储治理源头控制）；无 API 调用费
+- 可选成本项（非核心）：embedding 检索 / 知识轨 provider（marm 等）——按需启用，默认关闭
+- 验证：价值主张第 7 条（成本节省）以 eval-compare.mjs 同任务前后 N 次中位数对比为新数据支撑；不预设结论，以度量为准

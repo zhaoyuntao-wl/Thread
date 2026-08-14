@@ -36,6 +36,17 @@ packages/evals               回归集 runner + 度量
 
 见 `packages/core/src/store.ts` SCHEMA：`events`（session_id/kind/ts/seq/body/meta/truncated）、`events_fts`（FTS5 unicode61, content='events'）、`episodes`、`goals`、`decisions`（proposed/active/superseded/revoked + superseded_by）、`feedback`（preference/correction）、`lineage_edges`。WAL + busy_timeout。
 
+### 2.0 schema 版本管理（2026-08-14 补充）
+
+```sql
+CREATE TABLE IF NOT EXISTS schema_version (
+  version INTEGER NOT NULL,
+  applied_at TEXT NOT NULL
+);
+```
+
+迁移链规则：① 每次 schema 变更 = 一个迁移（含校验）；② 迁移按 version 递增应用；③ **禁止原地改表**（已有表结构变更必须走迁移 + 校验）；④ 迁移失败回滚（copy 备份）。B④ 是首个正式迁移。
+
 ### 2.2 v2 增量
 
 ```sql
@@ -158,14 +169,20 @@ interface KnowledgeProvider {
 // CompactionSource：各底座压缩事件 → compact_checkpoint（Qoder 已有；dsh 订阅 session/event）
 ```
 
-### 3.7 StorageGovernor / Archiver（接口预留，实现延后）
+### 3.7 StorageGovernor / Archiver / Rebuilder（接口预留，实现延后）
 
 ```ts
 interface Archiver {
   archive(projectKey: string, beforeTs: string): Promise<{ moved: number; dbPath: string }>;
   // VACUUM INTO + 摘要级二级索引；B⑤ 实测膨胀率后定阈值，再实现
 }
+interface Rebuilder {
+  rebuild(sessionId?: string): Promise<{ events: number; episodes: number }>;
+  // 从事件流水重建派生层（FTS/情节/结构化表/血缘）——事件流水是唯一真相源
+}
 ```
+
+**事件溯源可重建性**：结构化表 / FTS 索引 / 情节 / 血缘 = 派生数据，`events` 流水 = 唯一真相源；崩溃、DB 损坏、迁移事故的恢复路径 = `Rebuilder.rebuild()`；恢复演练入回归集（B⑦）。
 
 ## 4. 不变量（代码级约束）
 
@@ -178,6 +195,7 @@ interface Archiver {
 7. **预算**：状态卡 ≤200 行；FTS 只索引 indexable kind（存储治理源头控制）。
 8. **底座无关**：core 零底座 import；适配器只做三弱能力映射（hook 事件 / 上下文注入 / MCP）。
 9. **迁移无损**：B④ 迁移后 count + 抽样 hash 校验，失败回滚。
+10. **事件溯源可重建**：events 流水 = 唯一真相源；派生层（结构化表/FTS/情节/血缘）可从流水重建；禁止只改派生层不落流水。
 
 ## 5. 适配器契约
 
@@ -192,9 +210,18 @@ dsh 原生接缝补充（v2 战略章节已述）：`agent/pre-step` 瀑布可�
 
 ## 6. 验证体系代码级
 
-- `packages/evals` runner：`runScenario(name, script)`——脚本构造真实会话事件流 → 跑断言（决策链保留 / 重复提问不重发 / 跨压缩保真 / goal 留存）。
-- 回归场景清单：decision-chain、repeat-question、goal-retention、**compact-fidelity（跨压缩保真，B⑦ 新增）**、scope-filter、migration-lossless。
-- 度量埋点：metrics 表（recall_miss / repeat_question / correction / storage_growth）；B⑤ 埋点后由 evals 汇总输出。
+- `packages/evals` runner：`runScenario(name, script)`——脚本构造真实会话事件流 → 跑断言；CLI 入口 `pnpm eval`。
+- 回归场景清单 + 断言 + 判据（B⑦ 具体化）：
+  - decision-chain：决策链跨事件保留 → 断言：压缩后 active 决策仍可检索，判据 = 保留率 ≥90%
+  - repeat-question：已答信息不重复提问 → 断言：检索命中原文，判据 = 命中率 ≥90%
+  - goal-retention：目标跨压缩留存 → 断言：checkpoint 后状态卡含原目标，判据 = 100%
+  - compact-fidelity（B⑦ 新增）：压缩掉细节可回拉 → 断言：expand 返回原文，判据 = 回拉成功率 ≥95%
+  - injection-follow：状态卡 active 决策被遵循 → 判据 = 遵循率 ≥80%（轻确认旁路 + 人工抽查采样）
+  - scope-filter：非当前项目硬过滤 → 判据 = 零泄漏
+  - migration-lossless：迁移后 count + 抽样 hash → 判据 = 零差异
+  - rebuild-recovery：删除派生层后 rebuild 恢复 → 判据 = 与重建前一致
+- 度量埋点：metrics 表（recall_miss / repeat_question / correction / storage_growth / injection_follow_rate）；B⑤ 埋点后由 evals 汇总输出。
+- CI 门禁：`pnpm eval` 纳入提交前验证链（AGENTS.md：typecheck && lint && test）；回归失败阻塞合入。
 
 ## 7. 存储治理代码级
 
