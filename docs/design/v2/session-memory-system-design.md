@@ -90,6 +90,7 @@
 - **交付三件套（npm）**：`dsh-thread`（bundle，社区主载体）＋ `t-dsh`（profile，`dsh --profile thread` 一键旗舰）＋ `thread-mcp`（独立 MCP server 包，全底座通用查询通道，dsh 上 `--patch` overlay 零代码）。命名遵守 dsh 惯例（对齐 dsh-goal / dsh-compaction-basic）。
 - **发布节奏**：跟随 dsh release train——preview 破坏性变更下版本钉定 + compat 矩阵（CI 对 dsh 多版本回归），只锚定核心不变量（session 日志 / inject / tools / pre-step——有运行时 "Model-visible means logged" 保护，最稳）。
 - **社区目标分层**：M1 上 `dsh-plugin` topic + Discord 亮相 → M2 稳定后争取官方互链（examples/mcp-memory 第四行——官方定位"互操作示例、非背书"，先以稳定版本入场）→ 佐证体系新增 dsh 实测数据（跨压缩保真、inject 进摘要上下文）。
+- **发布时机判定（2026-08-14 用户问询后补充：成熟度门槛，非日历时间）**：发布 ≠ 挑日子，是四个门槛**全部满足**才动；缺一不发。① **证据齐**——B⑦ 场景级保真回归集 + 外部底座对照数据（"无人区"实证；竞品无法自证、Thread 能，这是受欢迎的最大差异化基础）；② **一键可装**——三件套（`dsh-thread` / `t-dsh` / `thread-mcp`）一条命令装完、零配置、better-sqlite3 依赖随包解决（2026-08-14 狗粮实测 bindings 缺失坑，安装体验直接决定口碑）；③ **稳定窗口**——跟随 dsh release train，等 preview 转稳定后再发旗舰插件，避免破坏性变更期上线；④ **命名占位**——`dsh-thread` npm/GitHub 未占用已确认，**现在即可占位**（占位 ≠ 发布，零成本）。**顺序建议**：`thread-mcp` 先发（轻量、全底座通用、试水温攒反馈）→ B⑦ 证据齐后 `dsh-thread` 旗舰 → `t-dsh` profile 演示门面。**受欢迎度预判**：需求侧真空缺（官方"记忆交给第三方"姿态 + 社区 30 个记忆插件全急就章）、上限高；供给侧受安装复杂度与认知门槛拖累，转化率取决于"一键可装 + 证据"两个前提——现在发会叫好不叫座。
 - **不变**：monorepo、设计文档权威、evals 回归集、Qoder 狗粮循环、适配器矩阵主线。
 
 **dsh 插件社区现状与竞争格局（2026-08-14 调研）**：
