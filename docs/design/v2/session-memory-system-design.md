@@ -89,6 +89,12 @@
 - **社区目标分层**：M1 上 `dsh-plugin` topic + Discord 亮相 → M2 稳定后争取官方互链（examples/mcp-memory 第四行——官方定位"互操作示例、非背书"，先以稳定版本入场）→ 佐证体系新增 dsh 实测数据（跨压缩保真、inject 进摘要上下文）。
 - **不变**：monorepo、设计文档权威、evals 回归集、Qoder 狗粮循环、适配器矩阵主线。
 
+**dsh 插件社区现状与竞争格局（2026-08-14 调研）**：
+
+- **活跃度**：dsh 发布 ~16 小时即 67.2k stars / 5,674 forks；无 releases（preview 直推 master）、open_issues=0（走 discussions）。生态基建已成型：`dsh plugin add` 安装命令、`create-dsh-plugin` 脚手架（npm 周下载 135）、dsh-find-plugin 发现工具、两个 awesome 列表（精选 145 插件、入场门票 = `dsh.bundle` manifest）、社区发行版 oh-dsh。topic `dsh-plugin` 下 1004 仓库，头部插件 919★（web-ui）/ 854★（modlens 视觉），全部近几小时发布。
+- **直接竞品（记忆 ~30 个 / 会话类 64 个）**：① **Jesse-njx/dsh-memory（1★）——理念最接近**："cited memory over lossless session log"、"summaries are an index into ground truth, never the truth"——无损日志 + 引用回拉与 Thread 同源；但后置 LLM 蒸馏（非确定性）、markdown 文件存储（无 BM25/状态机）、无压缩边界整合、无验证体系。② PerryLink/dsh-memento（1★）：bounded/layered/approval-gated/auditable 跨会话记忆。③ csyangwen/dsh-memory-evolve（24★，记忆类最高星）：跨会话长期记忆 + 自进化（偏知识记忆）。④ ben7am1n/dsh-memory（1★，跨会话 SQLite）；Tieboyh/dsh-session-search（2★，检索方向）；modusensus/dsh-mneme（2★，唯一带测试：106 个）。官方三例（Memorix/Reference Memory/Engram）= 知识记忆，不冲突。
+- **战略含义**：① 窗口比预想紧——真空缺以小时计，16 小时 30 个记忆插件；但竞品全部 1~24★、无保真度量、无验证体系，Thread 的"窄而深 + 验证体系"仍是差异化，"第一个做"的红利在缩水。② **命名占位需快**：`dsh-thread` 在 npm / GitHub 均未占用（调研当日确认），应尽快 npm 占位 dsh-thread / t-dsh / thread-mcp 三包名。③ 发布提速：spike 与社区亮相并行，不等 spike 完成。④ **持续跟踪 Jesse-njx/dsh-memory**——若补上验证体系即成正面对手；Thread 的确定性 MVP（零 LLM 蒸馏）+ 结构化状态机 + 跨底座适配器仍是差异。
+
 **待验证点（批 B 后 dsh spike，改自原双 spike）**：① MCP overlay 零代码挂载实测（查询通道）；② 原生插件 spike——`session/event` 订阅 / `agent.inject()` / `ctx.tools` 三接缝与文档一致性 + **inject 内容是否进入 compaction 摘要上下文**（Qoder 上同问题死路，dsh 上可测）；③ dsh 同任务编码实测（地基打分，须达中位）；④ 钉版本策略——preview 破坏性变更下锚定哪些核心不变量（session 日志 / 事件 / inject / pre-step）。原 Pi/OMP spike 降级为可选。
 
 ---
