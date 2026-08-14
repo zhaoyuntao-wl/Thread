@@ -1,4 +1,4 @@
-﻿# Thread 功能清单与状态（双代理开发验证用）
+# Thread 功能清单与状态（双代理开发验证用）
 
 > 用途：Qoder 与 DSH 两代理交替/同时推进项目时，对照本清单顺手验证 Thread 功能。
 > 状态图例：✅ 已实现+单测+狗粮实证｜🟡 已实现+单测，狗粮验证不足｜🔵 已实现，验证待补｜⚪ 规划中
@@ -11,7 +11,7 @@
 |---|---|---|---|---|
 | A1 | 事件追加（user/assistant/tool_call/tool_result/compact_checkpoint） | ✅ | T+Q+D | dsh 会话写的事件 Qoder 可查，反之亦然（**X 已证 2026-08-14**：同项目库共存 qoder:// 537 + dsh:// 172，web GUI 内 MCP 互查成功） |
 | A2 | 写时即建索引（FTS5 BM25，只索引 user/assistant/compact 三类） | ✅ | T+Q+D | — |
-| A3 | origin 幂等去重（同一 origin 只写一次） | ✅ | T+Q | **X 部分证 2026-08-14**：qoder:// 与 dsh:// 体系共存互不冲突、各自唯一；**遗留**：迁移前 schema v1 旧事件 origin=NULL（12k3cap 库 2251 条），属历史数据非写漏，可选回填 |
+| A3 | origin 幂等去重（同一 origin 只写一次） | ✅ | T+Q+D | **X 已证 2026-08-14**：qoder:// 与 dsh:// 体系共存互不冲突、各自唯一；**遗留已清**：迁移前 schema v1 旧事件 origin=NULL 已回填（backfill-origin.mjs，2541 条，NULL 归零、零重复、integrity ok） |
 | A4 | 正文截断 + 溢出 spill（SpillPolicy 4K 阈值 → spills 表） | ✅ | T+Q | — |
 | A5 | 事件流检索（queryMemory BM25 + 结构化查询 kind/since/until/count） | ✅ | T+Q+D | dsh 会话内 MCP 查 Qoder 历史事件（**X 已证 2026-08-14**：本会话 web GUI 内 query_session_memory 命中 Qoder 时代事件） |
 | A6 | 引用回拉 expand（spill 原文恢复，不可回拉给缺失标记） | ✅ | T+Q | — |
