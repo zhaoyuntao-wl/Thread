@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ThreadStore } from "./store.js";
+import { applyScopePriority, ThreadStore } from "./store.js";
 
 let dir: string;
 let store: ThreadStore;
@@ -259,5 +259,47 @@ describe("structured scope (B②-4)", () => {
     const d = store.proposeDecision("s11", "默认项目级决策", { projectKey: "proj-x", ts: "2026-08-13T00:00:00.000Z" });
     expect(d.scope).toBe("project");
     expect(d.project_key).toBe("proj-x");
+  });
+});
+
+describe("applyScopePriority (B③)", () => {
+  it("keeps highest-priority scope for the same normalized text", () => {
+    const rows = [
+      { id: 1, text: "包管理用 pnpm", scope: "global" },
+      { id: 2, text: "包管理用 pnpm。", scope: "project" },
+      { id: 3, text: "包管理用 pnpm", scope: "session" },
+    ];
+    const out = applyScopePriority(rows);
+    expect(out).toHaveLength(1);
+    expect(out[0].scope).toBe("session");
+  });
+
+  it("project overrides global for the same fact (项目特例覆盖全局默认)", () => {
+    const rows = [
+      { id: 1, text: "用 pnpm", scope: "global" },
+      { id: 2, text: "用 pnpm", scope: "project" },
+    ];
+    const out = applyScopePriority(rows);
+    expect(out).toHaveLength(1);
+    expect(out[0].scope).toBe("project");
+  });
+
+  it("keeps distinct facts regardless of scope", () => {
+    const rows = [
+      { id: 1, text: "用 pnpm", scope: "global" },
+      { id: 2, text: "用 yarn", scope: "project" },
+    ];
+    const out = applyScopePriority(rows);
+    expect(out).toHaveLength(2);
+  });
+
+  it("treats missing scope as project (旧行默认)", () => {
+    const rows = [
+      { id: 1, text: "决策 A", scope: undefined },
+      { id: 2, text: "决策 A", scope: "session" },
+    ];
+    const out = applyScopePriority(rows);
+    expect(out).toHaveLength(1);
+    expect(out[0].scope).toBe("session");
   });
 });

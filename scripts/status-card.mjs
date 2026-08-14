@@ -1,4 +1,4 @@
-import { ThreadStore, deriveProjectKey } from "@thread/core";
+import { ThreadStore, applyScopePriority, deriveProjectKey } from "@thread/core";
 import { defaultDbPath } from "@thread/adapter-qoder-cli";
 import { readFileSync } from "node:fs";
 
@@ -34,9 +34,9 @@ let recent = [];
 try {
   const store = new ThreadStore({ path: dbPath });
   try {
-    goals = store.getActiveGoalsMerged(sessionId, projectKey);
-    decisions = store.getActiveDecisionsMerged(sessionId, projectKey);
-    feedback = store.getFeedbackMerged(sessionId, projectKey, 5);
+    goals = applyScopePriority(store.getActiveGoalsMerged(sessionId, projectKey));
+    decisions = applyScopePriority(store.getActiveDecisionsMerged(sessionId, projectKey));
+    feedback = applyScopePriority(store.getFeedbackMerged(sessionId, projectKey, 5));
     recent = store.getRecentEvents(sessionId, 3);
   } finally {
     store.close();

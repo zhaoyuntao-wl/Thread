@@ -831,3 +831,30 @@ function cjkSpace(text: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+// 分层优先级裁决（B③）：同事实（归一化 text）跨层级出现时保留最高优先级 会话内>项目>用户>全局
+const SCOPE_PRIORITY: Record<string, number> = { session: 3, project: 2, global: 1 };
+
+export function applyScopePriority<T extends { text: string; scope?: string | null }>(rows: T[]): T[] {
+  const best = new Map<string, T>();
+  for (const row of rows) {
+    const key = normalizeText(row.text);
+    if (!key) {
+      continue;
+    }
+    const existing = best.get(key);
+    const prio = SCOPE_PRIORITY[row.scope ?? "project"] ?? 0;
+    const existingPrio = existing ? (SCOPE_PRIORITY[existing.scope ?? "project"] ?? 0) : -1;
+    if (!existing || prio > existingPrio) {
+      best.set(key, row);
+    }
+  }
+  return [...best.values()];
+}
+
+function normalizeText(text: string): string {
+  return text
+    .replace(/\s+/g, "")
+    .replace(/[，。！!？?、；;：:,.·'"“”‘’()（）[\]【】<>《》]/g, "")
+    .toLowerCase();
+}
