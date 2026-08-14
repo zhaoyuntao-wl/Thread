@@ -49,7 +49,7 @@ if (typeof uuid === "string" && uuid.length > 0) {
 
 const hookCwd = typeof hookEvent?.cwd === "string" ? hookEvent.cwd : process.cwd();
 const projectKey = deriveProjectKey(hookCwd);
-const paths = defaultPaths(import.meta.url, hookCwd);
+const paths = defaultPaths(hookCwd);
 
 mkdirSync(dirname(paths.eventsDbPath), { recursive: true });
 mkdirSync(dirname(paths.structuredDbPath), { recursive: true });

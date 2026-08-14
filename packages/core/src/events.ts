@@ -1,3 +1,5 @@
+import type Database from "better-sqlite3";
+
 export const MAX_BODY_CHARS = 100_000;
 
 export type EventKind =
@@ -26,4 +28,16 @@ export function truncateBody(body: string, maxChars: number = MAX_BODY_CHARS): {
   }
   const kept = body.slice(0, maxChars);
   return { body: `${kept}\n... [truncated ${body.length - maxChars} chars]`, truncated: true };
+}
+
+export function eventKindCounts(db: Database.Database): Partial<Record<EventKind, number>> {
+  const counts: Partial<Record<EventKind, number>> = {};
+  const rows = db.prepare(`SELECT kind, COUNT(*) AS c FROM events GROUP BY kind`).all() as Array<{
+    kind: EventKind;
+    c: number;
+  }>;
+  for (const row of rows) {
+    counts[row.kind] = row.c;
+  }
+  return counts;
 }

@@ -11,9 +11,10 @@ Thread：编码 Agent 的会话记忆层（*Session memory with lineage for codi
 
 - TypeScript（strict / ESM / NodeNext）、Node >= 20、pnpm monorepo
 - `packages/core`：事件流水、结构化表（目标/决策/反馈）、血缘图、BM25 检索
-- `packages/adapters/qoder-cli`：第一参考适配器（hooks 采集 / 上下文注入 / MCP query 工具）
+- `packages/adapters/qoder-cli`：适配器矩阵一员（hooks 采集 / 上下文注入 / MCP query 工具，Qoder 基线保留）
+- `packages/adapters/dsh`：dsh 旗舰插件（订阅 `session/event` 采集 + `agent/pre-step` 状态卡注入；查询走 MCP overlay）
 - `packages/evals`：回归集（长任务场景、事实保留率检查）
-- 底座：Qoder CLI（当前狗粮）；Codewhale（Hmbown/CodeWhale）= 第二候选，能力未验证。**规划（v2 定案）**：dsh spike 后切换 dsh 狗粮（旗舰优先验证），Qoder 降为适配器矩阵一员；开发顺序 = 先 MCP 通用层（thread-mcp）→ 后 dsh 旗舰插件。
+- 底座：**dsh（当前狗粮，2026-08-14 切换，headless profile）**；Qoder CLI 降为适配器矩阵一员（hooks 代码与回归保留）；Codewhale（Hmbown/CodeWhale）= 第二候选，能力未验证。dsh 插件升级受 preview 破坏性变更影响，依赖钉 `0.1.0-rc.6`，挂载方式与风险见设计 v2 待验证点 ④。
 
 ## 常用命令
 
@@ -45,10 +46,12 @@ pnpm changeset     # 用户可见变更需生成 changeset
 ## 狗粮循环（Dogfooding）
 
 - **原则**：用当前版本的 Thread 管理 Thread 自身的开发会话上下文——开发即测试。当前基线 = 当前已提交版本（v0 MVP）。
-- **接入点**（`.qoder/settings.json` hooks + `.qoder/settings.local.json` MCP，均为本地配置不入库）：
-  - 采集：`UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `Stop` → `scripts/capture.mjs`（异步）；capture 内联确定性轻确认（`applyAnalysis`），用户消息/Agent 回复写入结构化表（目标/决策/反馈）；Agent 回复正文从 `transcript_path` 尾部提取（`extractLastAssistantTurn`，按 uuid 去重）
-  - 注入：`UserPromptSubmit` → `scripts/status-card.mjs`（同步，`hookSpecificOutput.additionalContext` + 必填 `hookEventName`）
-  - 查询：MCP server `thread-sms` → `packages/adapters/qoder-cli/dist/server.js`，工具 `query_session_memory`
+- **狗粮双通道（2026-08-14 起 dsh 为主）**：
+  - **dsh 通道（现网狗粮）**：`dsh --profile headless "任务"` 跑编码任务——采集 = `@thread/adapter-dsh` 订阅 `session/event` 写双库；注入 = `agent/pre-step` 每轮注入状态卡；查询 = MCP overlay `mcp__thread__query_session_memory`（thread-sms）。挂载 = 复制 dist 到 `~/.dsh/profiles/headless/node_modules/@thread/{adapter-dsh,core}` + `cordis.patch.yml` 持久化 MCP 条目；改插件后 `pnpm --filter @thread/adapter-dsh build` + 重新复制。
+  - **Qoder 通道（保留）**（`.qoder/settings.json` hooks + `.qoder/settings.local.json` MCP，均为本地配置不入库）：
+    - 采集：`UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `Stop` → `scripts/capture.mjs`（异步）；capture 内联确定性轻确认（`applyAnalysis`），用户消息/Agent 回复写入结构化表（目标/决策/反馈）；Agent 回复正文从 `transcript_path` 尾部提取（`extractLastAssistantTurn`，按 uuid 去重）
+    - 注入：`UserPromptSubmit` → `scripts/status-card.mjs`（同步，`hookSpecificOutput.additionalContext` + 必填 `hookEventName`）
+    - 查询：MCP server `thread-sms` → `packages/adapters/qoder-cli/dist/server.js`，工具 `query_session_memory`
 - **生效时机**：hooks 即时生效（当前会话可用）；MCP 配置变更后 `/mcp reload` 或开新会话生效。
 - **升级循环**：迭代 Thread 代码 → `pnpm build` 重建 → 开新会话即用新版本（脚本路径固定，无需改配置）；新版本经回归集 + 狗粮验证后再升级基线。
 - **迭代时的自测纪律**：本会话中的用户消息/工具调用/决策已实时入库（B④ 后双库：`~/.thread/structured.db` 结构化 + `~/.thread/projects/<项目键 hash>/events.db` 事件，项目键 = 规范化 git 根、目录名 = 31 哈希 base36），可用 `query_session_memory`（新会话）或直接查库验证；发现漏召回/误判记入回归集场景。手动演练 capture/status-card 脚本时必须设 `THREAD_ROOT` 指向临时根目录，严禁写入生产 `~/.thread/`。

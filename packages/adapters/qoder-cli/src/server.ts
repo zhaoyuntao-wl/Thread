@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { defaultPaths } from "./index.js";
 
-const paths = defaultPaths(import.meta.url);
+const paths = defaultPaths();
 const store = new ThreadStore({ eventsPath: paths.eventsDbPath, structuredPath: paths.structuredDbPath });
 
 const server = new McpServer({

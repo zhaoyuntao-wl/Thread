@@ -5,7 +5,7 @@ import { migrateSplit, snapshotTableMaxIds, replayIncrement } from "@thread/core
 import { deriveProjectKey, hashProjectKey } from "@thread/core";
 import { existsSync, rmSync, mkdirSync, copyFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 const args = process.argv.slice(2);
 function flag(name) {
