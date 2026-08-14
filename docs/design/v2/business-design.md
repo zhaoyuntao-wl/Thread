@@ -70,11 +70,36 @@ SessionStart（可无采集）
 - 写入约束：幂等（sourceUuid 去重）/ 截断（SpillPolicy 4K）/ 写时建索引 / 血缘边 / 情节更新——技术设计 §3.1
 - 产出：events / episodes / goals / decisions / feedback / lineage_edges / spills / metrics 增量
 
-### 2.3 状态卡输出规范
+### 2.3 状态卡输出规范（2026-08-14 升级：模型关注度优先）
 
-- 格式：结构化文本（markdown），含 session / 目标（active）/ 决策（active 优先，superseded 折叠）/ 反馈（最近 N）/ 最近事件摘要
-- 预算：≤200 行（单轮注入 token 预算）；超预算截断，保留高优先级层
-- 注入时机：UserPromptSubmit（每轮）；压缩后自动回归
+**问题**：Thread 管理/注入做得再好，模型不接受或关注度不足则效果打折——纯 Markdown 平铺是低关注度格式。目标：**信息分级 + 多格式混用**，让模型能识别区域边界、快速解析关键项、低噪声。
+
+**格式原则**：
+1. **区域边界**：稳定 XML 标签包裹（`<thread_status>`），与对话/代码内容明确区分
+2. **信息分级**：critical（active 决策/目标）> context（反馈/教训）> recent（最近事件摘要）——决策区置顶
+3. **紧凑结构化**：critical 区用 JSON（确定性解析、token 高效）；context 区用键值列表；不纯 Markdown
+4. **行动锚点**：critical 区带操作语义（`action:"follow"` 等），提示模型"这是要遵守的状态"而非叙述
+5. **预算内分层分配**：critical 60% / context 25% / recent 15%（默认，可配）
+6. **低噪声**：superseded 折叠为单行引用；重复去重
+7. **缓存友好**：稳定段（决策/目标）放前部、高频变化段（recent）放尾部——利于 prefix-cache（与 dsh frozen snapshot 同思路）
+8. **底座适配**：注入位置（系统侧/用户消息前缀）由适配器参数决定
+
+**示例**：
+```
+<thread_status session="121a...">
+<critical>
+{"decisions":[{"id":12,"status":"active","action":"follow","text":"状态卡用XML+JSON混合格式"},{"id":10,"status":"superseded","by":12}],"goals":[{"id":3,"status":"active","text":"二期批B落地"}]}
+</critical>
+<context>
+- [feedback] 不要纯markdown状态卡（correction, 2026-08-14）
+</context>
+<recent>
+- 最近: B② 作用域设计已定稿
+</recent>
+</thread_status>
+```
+
+**验证**：格式有效性入回归集（decision-chain / goal-retention 在格式变更后仍通过）；关注度提升以狗粮观察为准（模型是否遵循 active 决策）。
 
 ### 2.4 MCP 工具契约（query_session_memory）
 
@@ -113,3 +138,28 @@ SessionStart（可无采集）
 | 状态卡预算 | 200 行 | core state-card 配置 |
 | 压缩触发 | 底座默认（manual + auto 阈值） | 底座侧配置 |
 | THREAD_DB | 项目 `.thread/sms.db` | 环境变量（演练时指向临时库，严禁写生产库） |
+
+## 6. 契约基线与适配度评估（2026-08-14 定案）
+
+**原则**：契约默认值 ≠ 固定值。**Thread 目标基线 = 按 Thread 目标（保真优先、零 LLM、O(1)、无损）定义的理论最优值**，不是从 Qoder 实测推导；各适配器声明实际适配参数（实测调整）；core 按参数驱动。目标与实测的差距 = 适配度，产出适配度矩阵指导投入优先级。
+
+**目标基线（Thread 定义）**：
+- 捕获覆盖：事件全类（用户 / 回复 / 工具 / 压缩边界 / 会话生命周期）零遗漏
+- 注入保真：每轮稳定注入 + 压缩后自动回归 + 位置可控（系统侧优先）+ 入日志可重建
+- 检索可达：模型可主动调用（工具 / MCP）+ 零 LLM 成本 + 引用可回拉
+- 压缩可见性：压缩边界可观测（checkpoint）+ 摘要可检索
+- 存储与预算：spill 阈值 / 状态卡预算按目标定（默认 4K / 200 行，可配）
+
+**适配度评估框架（五维 0~1，实测修正）**：
+
+| 维度 | Qoder（实测） | dsh（文档 + 待 spike） | Claude（待验证） | Codex（待验证） |
+|---|---|---|---|---|
+| 捕获覆盖 | hooks 全事件 ✅ 1.0 | session/event 一等 ✅ 1.0 | hooks 同构 ~0.9 | hooks/rules ~0.9 |
+| 注入保真 | hookSpecificOutput 不采纳 → 0.4（UserPromptSubmit 兜底） | inject() 原生 → 1.0（待验证进摘要） | 待验证 | 待验证 |
+| 检索可达 | MCP ✅ 1.0 | ctx.tools 原生 ✅ 1.0 | MCP ✅ 1.0 | MCP ✅ 1.0 |
+| 压缩可见性 | compact_checkpoint ✅ 1.0（实测） | session/event 订阅 → 1.0（待验证） | PreCompact hook → 待验证 | 待验证 |
+| 注入位置可控 | 受限（additionalContext 语义） | 精确（pre-step / inject） | 待验证 | 待验证 |
+
+**预期排序**：dsh ≥ Qoder > Claude ≈ Codex（spike / 适配器落地后修正）。产出：适配度矩阵 = 投入优先级输入（优先做适配度最高且受众最大的底座）。
+
+**参数驱动**：适配器声明 `adapterParams`（spill 阈值、状态卡预算、注入位置策略、幂等键来源）；core 读取，无声明用目标基线。
