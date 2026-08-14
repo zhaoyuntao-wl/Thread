@@ -139,7 +139,7 @@
 
 > 代码级设计与约束（模块边界 / 数据模型 v2 / 核心接口契约 / 不变量 10 条 / 适配器契约 / 验证体系 / 存储治理）见 [technical-design.md](./technical-design.md)。业务设计（端到端流程 / 输入输出契约 / 用户可见行为 / 操作约束 / 配置面 / 成本模型刷新）见 [business-design.md](./business-design.md)。
 
-**开放项（待拍板）**：① 知识轨 provider 首选——建议两者皆可配、MVP 默认本地 BM25 兜底；② 语义检索是否可选集成——建议延后、不影响 MVP；③ 交接卡落盘——建议 `.thread/handoff.md`（与 sms.db 同目录、项目隔离）；④ 单底座主写约束——多底座同库双写会撞 SQLite 锁（memento 已踩过），建议单底座主写、其他只读；是否采纳待用户思考（2026-08-14 暂不落案）。
+**开放项（待拍板）**：① 知识轨 provider 首选——建议两者皆可配、MVP 默认本地 BM25 兜底；② 语义检索是否可选集成——建议延后、不影响 MVP；③ 交接卡落盘——建议 `.thread/handoff.md`（与 sms.db 同目录、项目隔离）。~~④ 单底座主写约束~~ **已推翻（2026-08-14）**：改为**同项目单库多写者**（SQLite WAL + busy_timeout + 写失败重试队列）——多底座并行是真实场景（同项目不同模块），跨 agent 状态同步是"底座无关"完整形态；并发写可靠性列入 dsh spike 验证项（详见 technical-design §5.1 / business-design §4）。子代理结论：MVP 不采集内部事件，结论经 tool_result 回流，父子血缘为可选边。
 
 ### 竞品架构与技术调研（2026-08-14：不隔离，正面竞争）
 
@@ -159,7 +159,7 @@
 
 **对包络影响**：定位升级为"**会话记忆的架构优胜者**"——四项核心 = 技术优势引擎，不是避风港。
 
-**待验证点（批 B 后 dsh spike，改自原双 spike）**：① MCP overlay 零代码挂载实测（查询通道）；② 原生插件 spike——`session/event` 订阅 / `agent.inject()` / `ctx.tools` 三接缝与文档一致性 + **inject 内容是否进入 compaction 摘要上下文**（Qoder 上同问题死路，dsh 上可测）；③ dsh 同任务编码实测（地基打分，须达中位）；④ 钉版本策略——preview 破坏性变更下锚定哪些核心不变量（session 日志 / 事件 / inject / pre-step）。原 Pi/OMP spike 降级为可选。
+**待验证点（批 B 后 dsh spike，改自原双 spike）**：① MCP overlay 零代码挂载实测（查询通道）；② 原生插件 spike——`session/event` 订阅 / `agent.inject()` / `ctx.tools` 三接缝与文档一致性 + **inject 内容是否进入 compaction 摘要上下文**（Qoder 上同问题死路，dsh 上可测）；③ dsh 同任务编码实测（地基打分，须达中位）；④ 钉版本策略——preview 破坏性变更下锚定哪些核心不变量（session 日志 / 事件 / inject / pre-step）；⑤ **多写者并发写验证**——同项目双底座并发写同一库的压力实测（WAL + busy_timeout + 重试队列可靠性）。原 Pi/OMP spike 降级为可选。
 
 ---
 

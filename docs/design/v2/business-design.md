@@ -125,8 +125,10 @@ SessionStart（可无采集）
 ## 4. 操作约束
 
 - **多项目隔离**（B②）：project_key 推导规则 = 仓库根目录 hash（`git rev-parse --show-toplevel` 的规范路径）；查询合并 project + global；非当前项目硬过滤；状态卡合并显示
+- **多 Agent 并行**（2026-08-14 定案）：同一用户可同时用多底座处理同一项目不同模块——同项目单库多写者（SQLite WAL + busy_timeout + 写失败重试队列）；事件按 session_id 隔离、同 project_key 合并；跨 agent 状态同步（A 的记录 B 的状态卡可见）是"底座无关"完整形态
+- **子代理**：MVP 不采集子代理内部事件；子代理结论经主会话 tool_result 回流并可由轻确认旁路提取候选决策；父子会话血缘为可选边
 - **隐私与安全**：全本地 SQLite（WAL）；结构化表无凭证明文；hook 载荷含路径等本地信息不出库；适配器不做任何云端同步（多机同步非 MVP，D 生态 backlog）
-- **降级矩阵**：采集失败 → 主路径不受影响（异步）；索引失败 → append 回滚（不产生半索引）；底座注入不采纳（Qoder hookSpecificOutput）→ 状态卡经 UserPromptSubmit 兜底；压缩无 checkpoint → 摘要仅靠底座自身（记录缺漏到 metrics）
+- **降级矩阵**：采集失败 → 主路径不受影响（异步）；索引失败 → append 回滚（不产生半索引）；**并发写失败 → 入重试队列，不丢弃**；底座注入不采纳（Qoder hookSpecificOutput）→ 状态卡经 UserPromptSubmit 兜底；压缩无 checkpoint → 摘要仅靠底座自身（记录缺漏到 metrics）
 - **度量与反馈**：metrics 表埋点（recall_miss / repeat_question / correction / storage_growth / **injection_follow_rate**——active 决策遵循率，轻确认旁路记录 + 人工抽查采样）；漏召回/误判记录入回归集场景（狗粮纪律）；遵循率反哺状态卡格式迭代（A/B：纯 Markdown vs 分级格式）
 
 ## 5. 配置面

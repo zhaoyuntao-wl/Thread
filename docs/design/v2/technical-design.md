@@ -208,6 +208,12 @@ interface Rebuilder {
 
 dsh 原生接缝补充（v2 战略章节已述）：`agent/pre-step` 瀑布可改写/拒绝模型所见（完全接管通道）；`ctx.goals` 仅同会话，跨会话由 Thread 结构化表承担。
 
+### 5.1 幂等与多写者（2026-08-14 定案）
+
+- **幂等键 = origin**：`origin` 含底座前缀（`qoder://` / `dsh://` / `claude://` / `codex://` + 事件 uuid），跨底座天然唯一；多底座同项目并发写同一库不冲突。
+- **同项目单库多写者**（替代"单底座主写"方案）：SQLite WAL + busy_timeout（现有）+ 写失败重试队列（capture 异步，失败入队重试，不阻塞）；并发写可靠性列入 dsh spike 验证项（同项目双写压力实测）。
+- **子代理**：MVP 不采集子代理内部事件——子代理结论经主会话 tool_result 回流（现有链路已覆盖，轻确认旁路可提取候选决策）；主会话 → 子代理会话血缘关联为**可选边**（底座暴露时记录，低成本）；子代理深度跟踪（决策归属 / 独立状态卡）列入 B⑥ 后评估。
+
 ## 6. 验证体系代码级
 
 - `packages/evals` runner：`runScenario(name, script)`——脚本构造真实会话事件流 → 跑断言；CLI 入口 `pnpm eval`。
