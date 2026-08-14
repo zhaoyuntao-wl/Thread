@@ -1,4 +1,4 @@
-import type { Decision, FeedbackRow, Goal, ThreadStore } from "./store.js";
+import type { Decision, FeedbackRow, Goal, StructuredWriteOptions, ThreadStore } from "./store.js";
 
 export interface TurnInput {
   user_msg?: string;
@@ -124,7 +124,7 @@ export function applyTurn(
   store: ThreadStore,
   sessionId: string,
   input: TurnInput,
-  opts: { sourceEvent?: number; ts?: string } = {},
+  opts: StructuredWriteOptions = {},
 ): AppliedTurn {
   const ts = opts.ts ?? new Date().toISOString();
   let sourceEvent = opts.sourceEvent;
@@ -149,19 +149,19 @@ export function applyTurn(
     sourceEvent ??= ev.id;
   }
 
-  return applyAnalysis(store, sessionId, input, { sourceEvent, ts });
+  return applyAnalysis(store, sessionId, input, { ...opts, sourceEvent, ts });
 }
 
 export function applyAnalysis(
   store: ThreadStore,
   sessionId: string,
   input: TurnInput,
-  opts: { sourceEvent?: number; ts?: string } = {},
+  opts: StructuredWriteOptions = {},
 ): AppliedTurn {
   const analysis = analyzeTurn(input);
   const ts = opts.ts ?? new Date().toISOString();
   const sourceEvent = opts.sourceEvent;
-  const structuredOpts = { sourceEvent, ts };
+  const structuredOpts = { sourceEvent, ts, scope: opts.scope, projectKey: opts.projectKey, origin: opts.origin };
 
   return store.transact(() => {
     const applied: AppliedTurn = { goals: [], decisions: [], feedback: [] };

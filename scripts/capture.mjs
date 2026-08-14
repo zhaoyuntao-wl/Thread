@@ -1,5 +1,6 @@
-import { ThreadStore, applyAnalysis } from "@thread/core";
+import { ThreadStore, applyAnalysis, deriveProjectKey } from "@thread/core";
 import { defaultDbPath, extractLastAssistantTurn, parseHookEvent } from "@thread/adapter-qoder-cli";
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -34,23 +35,56 @@ if (event.kind === "assistant_message" && event.meta?.assistant_text_pending) {
   event.meta = { ...event.meta, assistant_uuid: turn.uuid, assistant_text_pending: false };
 }
 
+// 幂等键 origin：底座前缀 + 事件 uuid（assistant 用 transcript uuid，工具用 tool_use_id，用户消息用 body+ts 哈希兜底）
+let origin;
+const uuid = event.meta?.assistant_uuid;
+const toolUseId = event.meta?.tool_use_id;
+if (typeof uuid === "string" && uuid.length > 0) {
+  origin = `qoder://transcript#${uuid}`;
+} else if (typeof toolUseId === "string" && toolUseId.length > 0) {
+  origin = `qoder://transcript#${toolUseId}`;
+} else if (event.kind === "user_message" && event.body) {
+  const h = createHash("sha256").update(`${event.body}\n${event.ts}`).digest("hex").slice(0, 16);
+  origin = `qoder://transcript#sha256-${h}`;
+}
+
+const cwd = typeof hookEvent?.cwd === "string" ? hookEvent.cwd : process.cwd();
+const projectKey = deriveProjectKey(cwd);
+
 mkdirSync(dirname(dbPath), { recursive: true });
 const store = new ThreadStore({ path: dbPath });
 try {
-  const uuid = event.meta?.assistant_uuid;
-  if (event.kind === "assistant_message" && uuid && store.hasAssistantTurn(event.session_id, uuid)) {
+  const existingUuid = event.meta?.assistant_uuid;
+  if (event.kind === "assistant_message" && typeof existingUuid === "string" && store.hasAssistantTurn(event.session_id, existingUuid)) {
     process.exit(0);
   }
-  const appended = store.append(event);
+  // 多写者重试（spike ⑤ 实证）：SQLITE_BUSY 立即重试，100ms 间隔、上限 20 次
+  const appended = appendWithRetry(store, event, { projectKey, origin });
   try {
     if (event.kind === "user_message") {
-      applyAnalysis(store, event.session_id, { user_msg: event.body }, { sourceEvent: appended.id, ts: event.ts });
+      applyAnalysis(store, event.session_id, { user_msg: event.body }, { sourceEvent: appended.id, ts: event.ts, projectKey, origin });
     } else if (event.kind === "assistant_message") {
-      applyAnalysis(store, event.session_id, { assistant_msg: event.body }, { sourceEvent: appended.id, ts: event.ts });
+      applyAnalysis(store, event.session_id, { assistant_msg: event.body }, { sourceEvent: appended.id, ts: event.ts, projectKey, origin });
     }
   } catch (err) {
     console.error(`thread capture: analysis failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 } finally {
   store.close();
+}
+
+function appendWithRetry(store, ev, opts, tries = 0) {
+  try {
+    return store.append(ev, opts);
+  } catch (err) {
+    if ((err?.code === "SQLITE_BUSY" || String(err).includes("database is locked")) && tries < 20) {
+      sleepSync(100);
+      return appendWithRetry(store, ev, opts, tries + 1);
+    }
+    throw err;
+  }
+}
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }

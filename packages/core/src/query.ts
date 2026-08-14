@@ -1,4 +1,5 @@
 import type { ThreadStore } from "./store.js";
+import type { EventKind } from "./events.js";
 
 export interface QueryOptions {
   tokenBudget?: number;
@@ -21,6 +22,22 @@ export interface QueryResult {
   status: QueryStatus;
   results: QueryHit[];
   note?: string;
+}
+
+// 结构化查询（抽查/审计路径）：时间范围 / kind 过滤 / 排序 / 计数——接口内聚，不新增工具
+export interface StructuredQueryOptions {
+  sessionId?: string;
+  timeRange?: { since?: string; until?: string };
+  kind?: EventKind | EventKind[];
+  order?: "asc" | "desc";
+  limit?: number;
+  count?: boolean;
+}
+
+export interface StructuredQueryResult {
+  status: "found" | "not-found";
+  results: QueryHit[];
+  count?: number;
 }
 
 const DEFAULT_TOKEN_BUDGET = 4000;
@@ -79,6 +96,65 @@ export function queryMemory(
   }
 
   return { status: "found", results };
+}
+
+// 结构化事件查询：精确时序/过滤/计数，不走 FTS——服务层抽查/审计路径（接口内聚，单一工具内路由）
+export function queryEvents(store: ThreadStore, opts: StructuredQueryOptions): StructuredQueryResult {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (opts.sessionId) {
+    where.push("session_id = ?");
+    params.push(opts.sessionId);
+  }
+  if (opts.timeRange?.since) {
+    where.push("ts >= ?");
+    params.push(opts.timeRange.since);
+  }
+  if (opts.timeRange?.until) {
+    where.push("ts <= ?");
+    params.push(opts.timeRange.until);
+  }
+  if (opts.kind) {
+    const kinds = Array.isArray(opts.kind) ? opts.kind : [opts.kind];
+    where.push(`kind IN (${kinds.map(() => "?").join(", ")})`);
+    params.push(...kinds);
+  }
+  const whereSql = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+
+  if (opts.count) {
+    const row = store.db.prepare(`SELECT COUNT(*) AS c FROM events ${whereSql}`).get(...params) as { c: number };
+    return { status: row.c > 0 ? "found" : "not-found", results: [], count: row.c };
+  }
+
+  const order = opts.order === "asc" ? "ASC" : "DESC";
+  const limit = Math.min(opts.limit ?? 20, 50);
+  const rows = store.db
+    .prepare(
+      `SELECT id, session_id, kind, ts, seq, body, truncated FROM events ${whereSql} ORDER BY ts ${order}, id ${order} LIMIT ?`,
+    )
+    .all(...params, limit) as Array<{
+    id: number;
+    session_id: string;
+    kind: EventKind;
+    ts: string;
+    seq: number;
+    body: string;
+    truncated: number;
+  }>;
+  if (rows.length === 0) {
+    return { status: "not-found", results: [] };
+  }
+  return {
+    status: "found",
+    results: rows.map((r) => ({
+      segment_id: r.id,
+      kind: KIND_LABELS[r.kind] ?? r.kind,
+      ts: r.ts,
+      seq: r.seq,
+      body: r.body,
+      score: 0,
+    })),
+  };
 }
 
 function findEpisodeSummary(

@@ -4,3 +4,5 @@ export * from "./state.js";
 export * from "./store.js";
 export * from "./light-confirm.js";
 export * from "./query.js";
+export * from "./governor.js";
+export * from "./project-key.js";

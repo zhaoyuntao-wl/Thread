@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { queryMemory } from "./query.js";
+import { queryMemory, queryEvents } from "./query.js";
 import { ThreadStore } from "./store.js";
 
 let dir: string;
@@ -15,7 +15,7 @@ beforeAll(() => {
     session_id: "q1",
     kind: "user_message",
     ts: "2026-08-13T00:00:00.000Z",
-    body: "帮我实现登录功能",
+    body: "帮我实现登录功能，密码用 bcrypt 加密",
   });
   store.append({
     session_id: "q1",
@@ -48,7 +48,7 @@ describe("queryMemory", () => {
     const result = queryMemory(store, "bcrypt 加密", { sessionId: "q1" });
     expect(result.status).toBe("found");
     expect(result.results.length).toBeGreaterThan(0);
-    expect(result.results[0].kind).toBe("tool_call");
+    expect(result.results[0].kind).toBe("user");
   });
 
   it("returns not-found with actionable note", () => {
@@ -94,5 +94,38 @@ describe("queryMemory", () => {
     expect(result.status).toBe("degraded");
     expect(result.results[0].kind).toBe("summary");
     expect(result.results[0].body).toContain("bcrypt");
+  });
+
+  it("queryEvents filters by kind and time range", () => {
+    const result = queryEvents(store, {
+      sessionId: "q1",
+      kind: "user_message",
+      timeRange: { since: "2026-08-13T00:00:00.000Z", until: "2026-08-13T00:00:11.000Z" },
+      order: "asc",
+    });
+    expect(result.status).toBe("found");
+    expect(result.results.length).toBeGreaterThan(0);
+    expect(result.results.every((r) => r.kind === "user")).toBe(true);
+    const first = result.results[0];
+    expect(first.ts).toBe("2026-08-13T00:00:00.000Z");
+  });
+
+  it("queryEvents counts events", () => {
+    const result = queryEvents(store, {
+      sessionId: "q1",
+      kind: ["tool_call", "tool_result"],
+      count: true,
+    });
+    expect(result.status).toBe("found");
+    expect(result.count).toBe(2);
+  });
+
+  it("queryEvents returns not-found on empty range", () => {
+    const result = queryEvents(store, {
+      sessionId: "q1",
+      timeRange: { since: "2030-01-01T00:00:00.000Z" },
+    });
+    expect(result.status).toBe("not-found");
+    expect(result.results).toHaveLength(0);
   });
 });
