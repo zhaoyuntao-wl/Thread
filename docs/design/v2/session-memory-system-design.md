@@ -16,7 +16,7 @@
 | 4 | **压缩无损失**：压缩掉的细节可找回 | compact_checkpoint 事件（摘要全文入流水）+ 事件流水全量留存 | sms.db 实测（checkpoint id 854、trigger=manual） |
 | 5 | **上下文有界**：长会话上下文规模可控、可量化 | 压缩边界挂钩 + 每轮上下文曲线重建 | scripts/eval-ctx.mjs 实测（sawtooth：峰值 248,927 ≤ 锚点 249,541、谷值 ≤4,785） |
 | 6 | **底座无关**：三弱能力即可接入 | 适配器层（hook 事件 / 上下文注入 / MCP） | Qoder 适配器现网狗粮 + Claude Code hooks 同构分析（待移植验证） |
-| 7 | **成本节省**：长会话上下文不再随历史线性膨胀，同任务总 token 下降（目标架构） | 每轮上下文 = 状态卡 + 按需检索片段，替代全量历史重放 | eval-compare.mjs 同任务前后 N 次中位数对比（待数据积累）。**成立条件（备注）**：① 检索频次受控时节省成立，高频检索会侵蚀节省；② 薄适配模式下状态卡本身是净增（每轮几百 token），但 Thread 兜底压缩失真后，用户可**放心调低压缩阈值**（contextWindow / 更频繁压缩）换来每轮输入 token 下降——净效果取决于阈值调低幅度，可能反超状态卡开销，**不预设结论，以度量为准**；③ 完全接管形态（t-pi/t-omp）下节省直接兑现 |
+| 7 | **成本节省**：长会话上下文不再随历史线性膨胀，同任务总 token 下降（目标架构） | 每轮上下文 = 状态卡 + 按需检索片段，替代全量历史重放 | eval-compare.mjs 同任务前后 N 次中位数对比（待数据积累）。**成立条件（备注）**：① 检索频次受控时节省成立，高频检索会侵蚀节省；② 薄适配模式下状态卡本身是净增（每轮几百 token），但 Thread 兜底压缩失真后，用户可**放心调低压缩阈值**（contextWindow / 更频繁压缩）换来每轮输入 token 下降——净效果取决于阈值调低幅度，可能反超状态卡开销，**不预设结论，以度量为准**；③ 完全接管形态（t-dsh）下节省直接兑现 |
 
 ---
 
@@ -49,20 +49,21 @@
 顺序：**血缘语义边 → 摘要模型 → 动态路由 → 评估面板**
 
 - 血缘语义边：决策 ↔ 代码实体贯通（依赖批 A 模型选型）
-- 摘要模型：**已瘦身**——摘要由底座 compaction 承担（Pi 迭代摘要 / Qoder compact_summary），Thread 只留情节归档的确定性降级链
+- 摘要模型：**已瘦身**——摘要由底座 compaction 承担（dsh pressure/overflow / Pi 迭代摘要 / Qoder compact_summary），Thread 只留情节归档的确定性降级链
 - 动态模型路由：**已瘦身**——参考 OMP 角色路由模式（default/smol/slow/plan/commit），不自建，按需评估
 - 评估面板：线上度量可视化（依赖数据积累）
 - 验收：每子项各自回归 + 度量数据对比
 
 > 批 C 前需完成批 A 模型选型的实测（下载 / 内存 / 延迟验证）。
 
-### 底座战略与产品形态（2026-08-14 论证定案）
+### 底座战略与产品形态（2026-08-14 论证定案；当晚 dsh 发布后修订为首选）
 
-**背景链**：上下文膨胀治标不治本（压缩有信息密度下限，压无可压）→ 目标架构 = Thread 完全组织每轮上下文（状态卡 + 检索片段 + 近期工具历史，历史重放移除）→ Qoder 底座无此通道（`maxSessionTurns` spike 实测不截断重发）→ SDK wrapper 绕行（每轮新会话）可行但 Qoder 仅剩执行层价值。
+**背景链**：上下文膨胀治标不治本（压缩有信息密度下限，压无可压）→ 目标架构 = Thread 完全组织每轮上下文（状态卡 + 检索片段 + 近期工具历史，历史重放移除）→ Qoder 底座无此通道（`maxSessionTurns` spike 实测不截断重发）→ SDK wrapper 绕行（每轮新会话）可行但 Qoder 仅剩执行层价值。→ 2026-08-13 DeepSeek 官方发布 dsh：目标架构在其上**原生可达**（`agent/pre-step` 瀑布可改写/拒绝模型所见，`agent.inject()` 原生注入），wrapper 不再必要，dsh 定为 Thread 首选底座。
 
 **候选底座调研（源码/文档实证）**：
 
-- **earendil-works/pi**（badlogic 出品，MIT，TS 单仓）：三包分离 `pi-ai`（40+ Provider 含 DeepSeek）/ `pi-agent-core`（模型无关运行时）/ `pi-coding-agent`（CLI + 扩展系统）。上下文管理：阈值压缩（窗口-16K 预留触发 → 回合边界切割 → 保留近期 20K → LLM 迭代摘要替换，compaction entry 含文件血缘元数据）；树形会话；**扩展位** = `convertToLlm` 钩子 + compaction 模块整体可替换 + Dynamic Context（官方 RAG/记忆注入位）。裸编码能力：核心循环及格（4 工具基本盘、edit 模糊匹配、截断防御、并行执行），但无 WebSearch/子代理/plan/权限弹窗默认——纯编码任务约中位偏下~中位，综合任务低于中位，靠 Extension 补课。
+- **deepseek-ai/deepseek-harness（dsh，首选）**：DeepSeek 官方 agent harness，TS + MIT，2026-08-13 发布、首发日 66.7k stars，当前 developer preview（明确会有破坏性变更）。架构 = "Everything is a Plugin"（Cordis 微内核）：模型适配器 / 工具注册表 / 会话日志 / agent 循环全部是插件，可从配置整体替换，无特权内核。关键接缝（对 Thread 逐条对应）：**会话日志 = append-only 事件溯源**，运行时强制 "Model-visible means logged" 重建不变量——Thread 的"无损流水"是 dsh 内置基建，采集从解析 transcript 退化为订阅 `session/event`；`agent.inject()` 原生上下文注入（落地于下一条被采纳的请求，且入日志）；`agent/pre-step` 瀑布可改写/拒绝模型所见（完全接管通道）；`ctx.tools` 注册即进 prompt 组装（查询工具无需 MCP 中转）；压缩成熟——压力阈值 0.8 + 保留比 0.16 + 溢出恢复 + 统一 `ctx.tokenMeter` + `summarize()` 子类化 hook，unit/real-loop 测试齐全；会话 fork/resume 血缘内置。重叠面：`goal`（**仅同会话**目标）、`feedback`（仅记录、不进模型）、`examples/mcp-memory`（第三方记忆 via MCP，默认关闭——官方姿态 = 记忆交给第三方）→ **dsh 管会话内，Thread 管跨会话/跨压缩**，边界不冲突反而互证。
+- **earendil-works/pi**（badlogic 出品，MIT，TS 单仓，89.9k stars，2026-08-14 仍活跃）：三包分离 `pi-ai`（40+ Provider 含 DeepSeek）/ `pi-agent-core`（模型无关运行时）/ `pi-coding-agent`（CLI + 扩展系统）。上下文管理：阈值压缩（窗口-16K 预留触发 → 回合边界切割 → 保留近期 20K → LLM 迭代摘要替换，compaction entry 含文件血缘元数据）；树形会话；**扩展位** = `convertToLlm` 钩子 + compaction 模块整体可替换 + Dynamic Context（官方 RAG/记忆注入位）。裸编码能力：核心循环及格（4 工具基本盘、edit 模糊匹配、截断防御、并行执行），但无 WebSearch/子代理/plan/权限弹窗默认——纯编码任务约中位偏下~中位，综合任务低于中位，靠 Extension 补课。
 - **oh-my-pi**（can1357，从 Pi fork，Rust 引擎 ~55k LOC，周更）：电池全包路线——32 工具（LSP/DAP/Hashline/browser/web_search）、40+ provider 角色路由、sub-agent 编排。记忆相关：`mnemopi`（SQLite 知识记忆引擎 remember/recall，可选本地 ONNX embedding + 远程 LLM，确定性兜底——**知识记忆，与 Thread 会话保真不同向**）；`snapcompact`（丢弃历史渲染成 PNG 位图帧让视觉模型读回，确定性零 LLM 调用——**保细节，与 Thread 保结构互补**）；包列表含 `metaharness`（疑似 harness 接入点，待验证）。编码能力中位以上。
 - **Qoder CLI**：第一参考适配器与现网狗粮（批 A/B① 已实证三弱能力 + 压缩边界 hook）。
 
@@ -72,14 +73,15 @@
 - 不做压缩保细节（底座 compaction / snapcompact 的地盘）
 - 只做状态结构：目标/决策状态机 + 血缘 + O(1) 状态卡 + 压缩边界 checkpoint
 
-**护城河判断**：不靠速度（can1357 周更产出下时间差无意义），靠**窄而深 + 验证体系**——漏召回/误判/漂移的度量与回归集是保真层命门，追功能的底座不会投入；生态位 = Pi 哲学不内置记忆、OMP 重心在工具链，会话保真是真空缺。
+**护城河判断**：不靠速度（can1357 周更产出下时间差无意义），靠**窄而深 + 验证体系**——漏召回/误判/漂移的度量与回归集是保真层命门，追功能的底座不会投入；生态位 = Pi 哲学不内置记忆、OMP 重心在工具链，会话保真是真空缺。**dsh 风险注**：官方未来可能自建跨会话记忆（goal 目前仅同会话、mcp-memory 默认关闭是窗口期信号）——应对 = 窄而深 + 验证体系 + 快速交付 t-dsh，在官方填坑前成为该位事实标准。
 
-**交付形态——适配器矩阵（主）+ 参考发行版（旗）**：
+**交付形态——适配器矩阵（主）+ dsh 三形态（旗）**：
 
 - 主市场：Thread 适配器 × N 底座（三弱能力即可移植：hook 事件 / 上下文注入 / MCP）——Qoder 适配器已跑通，Claude Code hooks 同构（UserPromptSubmit/Stop/PreCompact + MCP）移植成本低。受众 = 全量长任务编码者，不押注任何底座。
-- 旗舰示范：t-pi / t-omp 参考发行版——演示"完全接管"目标架构，做技术旗帜而非唯一产品。t-pi 需预打包补齐件（滑向 OMP 路线）；t-omp 地基现成。**"完全接管"不是保真价值的必要条件**——旁路观测+注入已交付 80% 价值。
+- dsh 三形态（新旗舰，替代 t-pi/t-omp）：① **day-0 MCP overlay**——Thread 现成 MCP server 经 `--patch` 挂载即得 `mcp__thread__query_session_memory`，零代码查询通道（官方 examples/mcp-memory 同款模式）；② **`dsh-thread` 原生插件 bundle**——订阅 `session/event` 建结构化表 + BM25（采集）、`agent.inject()` 状态卡（注入）、`ctx.tools` 查询工具（查询）、可选 `agent/pre-step` 压缩边界保护（booster ① 在 Qoder 死路，在 dsh 原生）；③ **t-dsh 参考发行版**（profile = dsh bundles + thread bundle，`dsh --profile thread`）——演示"完全接管"目标架构的技术旗帜。**"完全接管"不是保真价值的必要条件**——旁路观测 + 注入已交付 80% 价值，dsh 原生接缝可到 90%+ 而不接管。
+- pi / OMP：降级为适配器矩阵 backlog，不再作为旗舰。
 
-**待验证点（批 B 后做双 spike）**：① Pi 扩展位能否不改上游接入（compaction 替换 + Dynamic Context + 事件采集）；② OMP 的 metaharness/snapcompact 可替换性与 Thread 接入点；③ 两底座同任务编码实测（地基打分）。
+**待验证点（批 B 后 dsh spike，改自原双 spike）**：① MCP overlay 零代码挂载实测（查询通道）；② 原生插件 spike——`session/event` 订阅 / `agent.inject()` / `ctx.tools` 三接缝与文档一致性 + **inject 内容是否进入 compaction 摘要上下文**（Qoder 上同问题死路，dsh 上可测）；③ dsh 同任务编码实测（地基打分，须达中位）；④ 钉版本策略——preview 破坏性变更下锚定哪些核心不变量（session 日志 / 事件 / inject / pre-step）。原 Pi/OMP spike 降级为可选。
 
 ---
 
