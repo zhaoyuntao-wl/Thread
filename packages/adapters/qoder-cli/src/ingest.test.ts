@@ -33,11 +33,16 @@ describe("parseHookEvent", () => {
       ...BASE,
       hook_event_name: "PreToolUse",
       tool_name: "Write",
+      tool_use_id: "call_00_abc123",
       tool_input: { file_path: "src/auth.ts", content: "x" },
     });
     expect(ev?.kind).toBe("tool_call");
     expect(ev?.body).toContain("Write");
-    expect(ev?.meta).toMatchObject({ tool_name: "Write", file_path: "src/auth.ts" });
+    expect(ev?.meta).toMatchObject({
+      tool_name: "Write",
+      tool_use_id: "call_00_abc123",
+      file_path: "src/auth.ts",
+    });
   });
 
   it("maps PostToolUse to tool_result", () => {

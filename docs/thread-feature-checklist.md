@@ -49,7 +49,7 @@
 |---|---|---|---|---|
 | E1 | 双库路由（结构化=用户级库、事件=项目库；血缘边按端点域路由） | ✅ | T+Q+D | — |
 | E2 | 迁移 migrateSplit（复制式+校验+增量重放 replayIncrement） | ✅ | T+Q | — |
-| E3 | SQLITE_BUSY 重试（100ms×20，capture/插件侧） | ✅ | T+Q+D | **X 待补**：两底座真并发写同一项目库 |
+| E3 | SQLITE_BUSY 重试（100ms×20，capture/插件侧） | ✅ | T+Q+D+X | **X 已证 2026-08-14**：真并发窗口（dsh 会话写至 id 3363 时 Qoder hooks 并行写），integrity_check=ok、零丢失 |
 | E4 | THREAD_ROOT 覆盖根目录（测试隔离） | ✅ | T | — |
 
 ## F. 注入与展示
@@ -68,7 +68,7 @@
 | G1 | Qoder 适配器（capture/status-card/query hooks + MCP server） | ✅ | Q | 保留为基线，双代理下持续用 |
 | G2 | dsh 插件 @thread/adapter-dsh（采集+注入） | ✅ | D | headless + web 双 profile 已挂载 |
 | G3 | MCP 查询通道（thread-sms → query_session_memory） | ✅ | Q+D | dsh web UI 内工具可用（**X 已证 2026-08-14**：本 dsh web 会话内调用成功） |
-| G4 | 双代理同项目并行写（SQLITE_BUSY 窗口） | 🟡 | T（压测 8×500） | **X 专项**：Qoder+dsh 同时开会话各跑任务，事件零丢失（已有交错写入证据：同库 709 条带 origin 事件、无丢失迹象，但真并发窗口未专门压测） |
+| G4 | 双代理同项目并行写（SQLITE_BUSY 窗口） | ✅ | T（压测 8×500）+X | **X 已证 2026-08-14**：真并发窗口（dsh 会话与 Qoder 会话同时活跃写同一项目库，事件 id 连续至 3366），integrity_check=ok、双 writer 均成功、MCP 实时互查命中 |
 
 ## H. 验证体系
 

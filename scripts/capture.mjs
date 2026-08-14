@@ -34,12 +34,21 @@ if (event.kind === "assistant_message" && event.meta?.assistant_text_pending) {
 }
 
 // 幂等键 origin：底座前缀 + 事件 uuid（assistant 用 transcript uuid，工具用 tool_use_id，
-// 用户消息/压缩摘要用 body+ts 哈希兜底——compact_checkpoint 无 uuid，必须兜底否则重放会重复落库）
+// 用户消息/压缩摘要用 body+ts 哈希兜底——compact_checkpoint 无 uuid，必须兜底否则重放会重复落库）。
+// tool_call 必须用独立前缀（qoder://toolcall#）而不是 transcript#：append 按 origin 全局去重，
+// 若与 tool_result 共用 tool_use_id 前缀，两次写入会互相去重覆盖，tool_result 会丢。
 let origin;
 const uuid = event.meta?.assistant_uuid;
 const toolUseId = event.meta?.tool_use_id;
 if (typeof uuid === "string" && uuid.length > 0) {
   origin = `qoder://transcript#${uuid}`;
+} else if (event.kind === "tool_call") {
+  if (typeof toolUseId === "string" && toolUseId.length > 0) {
+    origin = `qoder://toolcall#${toolUseId}`;
+  } else {
+    const h = createHash("sha256").update(`${event.body}\n${event.ts}`).digest("hex").slice(0, 16);
+    origin = `qoder://toolcall#sha256-${h}`;
+  }
 } else if (typeof toolUseId === "string" && toolUseId.length > 0) {
   origin = `qoder://transcript#${toolUseId}`;
 } else if (event.kind === "user_message" || event.kind === "compact_checkpoint") {

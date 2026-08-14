@@ -47,6 +47,7 @@ export function parseHookEvent(
         body: buildToolCallBody(ev),
         meta: {
           tool_name: ev.tool_name,
+          tool_use_id: ev.tool_use_id,
           tool_input: ev.tool_input,
           file_path: normalizeFilePath(extractFilePath(ev.tool_input), ev.cwd),
           transcript_path: ev.transcript_path,

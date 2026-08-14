@@ -102,4 +102,23 @@ describe("capture.mjs production pipeline (B④ 双库)", () => {
     store = new ThreadStore({ eventsPath, structuredPath });
     expect(store.getEventsForFile("e2e-1", "src/auth.ts").length).toBe(1);
   });
+
+  it("captures tool_call with qoder://toolcall origin and dedupes on replay", () => {
+    const payload = {
+      session_id: "e2e-2",
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_use_id: "call_00_dedupe1",
+      tool_input: { command: "ls" },
+      cwd: repoRoot,
+    };
+    capture(payload);
+    capture(payload);
+    store.close();
+    store = new ThreadStore({ eventsPath, structuredPath });
+    const calls = store
+      .getRecentEvents("e2e-2", 10)
+      .filter((e) => e.kind === "tool_call" && e.meta?.tool_use_id === "call_00_dedupe1");
+    expect(calls).toHaveLength(1);
+  });
 });
