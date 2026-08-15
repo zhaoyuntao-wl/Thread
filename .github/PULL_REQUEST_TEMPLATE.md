@@ -3,7 +3,7 @@
 
 ## Scope
 - [ ] core (event pipeline / structured tables / retrieval / status card)
-- [ ] adapters (qoder-cli / dsh-thread / thread-mcp)
+- [ ] adapters (dsh-thread / qoder-cli)
 - [ ] validation (evals scenarios)
 - [ ] docs
 

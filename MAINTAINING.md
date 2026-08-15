@@ -21,7 +21,8 @@ Every user-visible change ships with a changeset (`pnpm changeset`).
 4. Publish: `pnpm publish -r` (npm login with OTP as prompted).
 5. Tag and create the GitHub Release from the generated `CHANGELOG.md` entries.
 6. Post-release smoke test: install each published package from a clean shell
-   (`npm i -g thread-mcp`, `dsh plugin add dsh-thread`, `npx t-dsh`).
+   (`dsh plugin add dsh-thread`, then `npx dsh-thread` for the embedded MCP
+   server; `@thread/core` installs as a dependency).
 
 ## Breaking change policy
 

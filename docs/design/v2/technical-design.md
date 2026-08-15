@@ -14,16 +14,18 @@
 ```
 packages/core                保真核心（底座无关）
   src/events.ts              事件 kind / 截断（现有）
-  src/store.ts               schema + 读写（现有）
+  src/schema.ts              schema v3 + 迁移链（现有）
+  src/store.ts               schema + 读写 + 血缘（现有）
   src/state.ts               状态机转换断言（现有）
   src/query.ts               BM25 检索（现有）
-  src/lineage.ts             血缘图（现有）
   src/light-confirm.ts       轻确认旁路（现有）
+  src/status-card.ts         状态卡构建（现有）
+  src/migrate.ts             B④ 迁移核心（现有）
   src/governor.ts            [新] 存储治理：SpillPolicy / 索引分层 / Archiver 接口
   src/providers.ts           [新] KnowledgeProvider / CompactionSource 抽象
   src/retrieve.ts            [新] 引用回拉：search → expand(origin)
 packages/adapters/qoder-cli  Qoder 适配器（现有：capture/status-card/server）
-packages/adapters/dsh        [新] dsh-thread 插件 bundle（订阅/注入/工具）
+packages/adapters/dsh        [现有] dsh-thread 插件 bundle（订阅/注入/内嵌 MCP server）
 packages/adapters/claude-code [新] MCP overlay + hooks
 packages/adapters/codex      [新] MCP overlay + hooks
 packages/evals               回归集 runner + 度量
@@ -46,7 +48,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 );
 ```
 
-迁移链规则：① 每次 schema 变更 = 一个迁移（含校验）；② 迁移按 version 递增应用；③ **禁止原地改表**（已有表结构变更必须走迁移 + 校验）；④ 迁移失败回滚（copy 备份）。B④ 是首个正式迁移。
+迁移链规则：① 每次 schema 变更 = 一个迁移（含校验）；② 迁移按 version 递增应用；③ **禁止原地改表**（已有表结构变更必须走迁移 + 校验）；④ 迁移失败回滚（copy 备份）。B④ 是首个正式迁移；**最新迁移 = v3（B⑧ 会话隔离，2026-08-15 落地，见 §2.3）**。
 
 ### 2.2 v2 增量
 
@@ -102,13 +104,32 @@ CREATE TABLE IF NOT EXISTS decision_entities (
 );
 ```
 
-### 2.3 索引分层
+### 2.3 v3 增量（B⑧ 会话临时隔离，2026-08-15 落地）
+
+```sql
+-- 事件与结构化表增量列：isolation=1 的行仅建立会话可见
+ALTER TABLE events    ADD COLUMN isolation INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE goals     ADD COLUMN isolation INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE decisions ADD COLUMN isolation INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE feedback  ADD COLUMN isolation INTEGER NOT NULL DEFAULT 0;
+
+-- 会话级隔离开关
+CREATE TABLE IF NOT EXISTS session_isolation (
+  session_id TEXT PRIMARY KEY,
+  isolated INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
+);
+```
+
+隔离过滤语义：`isolation=1` 的行全链路仅自己可见（合并视图 / search / queryEvents / expand / 血缘全部过滤）；tool 类事件恒共享（写入时 isolation 强制 0，项目事实不断链）；解除隔离后历史仍隔离，`unisolateRow` 按需转共享。旧库无 isolation 列 → 迁移动态裁剪补列、缺失取 DEFAULT 0（migrate.ts）。schema 版本常量 `SCHEMA_VERSION = 3`。
+
+### 2.4 索引分层
 
 FTS5 只对 `indexable` 事件建索引。indexable 集合：`user_message`、`assistant_message`、`compact_checkpoint`、结构化表正文（目标/决策/反馈，以独立 FTS 或 events 派生）。`tool_call` / `tool_result` 大块**不建全文索引**，检索命中轻量事件后经 `origin`/`spill` 回拉原文。
 
-### 2.4 迁移（B④ → 物理分库，见专篇）
+### 2.5 迁移（B④ → 物理分库，见专篇）
 
-B② 已落地 ensureSchema 幂等迁移（schema v1 → v2 加列/建表，schema.ts）。B④ 为**物理分库**（用户级结构化库 + 项目事件库），代码级设计见 [B④ 物理分库专篇](./b4-storage-split.md)；迁移核心逻辑在 `packages/core/src/migrate.ts`（纯函数，可被测试直接 import，CLI 包装脚本为本地运维工具、不随公开仓库分发）。
+B② 已落地 ensureSchema 幂等迁移（schema v1 → v2 → v3 加列/建表，schema.ts）。B④ 为**物理分库**（用户级结构化库 + 项目事件库），代码级设计见 [B④ 物理分库专篇](./b4-storage-split.md)；迁移核心逻辑在 `packages/core/src/migrate.ts`（纯函数，可被测试直接 import，CLI 包装脚本为本地运维工具、不随公开仓库分发）。
 
 **写者暂停协议（2026-08-14 评审修订，替代原定案）**：原定案"禁止无暂停协议下在线迁移"针对**原地结构变更 + 并发写**组合风险（SQLite DDL + 并发写）。B④ 采用**复制式迁移**——旧库只读、不改旧库 DDL，新库独立写入，组合风险解除，不再需要写者暂停协议；零差异由**增量重放**保证（快照后 `id > snapshot_id` 增量按 origin 幂等补拉，见专篇 §7）。
 
@@ -126,6 +147,7 @@ interface AppendOptions {
   projectKey?: string;
   scope?: "global" | "project";
   origin: string;           // 幂等键 + 底座事件引用（含底座前缀：qoder:// / dsh:// / claude:// / codex:// + 事件 uuid）——跨底座天然唯一
+  isolation?: boolean;      // B⑧：本会话隔离期写入标记（tool 类事件恒共享，忽略此标记）
 }
 ```
 
@@ -175,6 +197,7 @@ interface StateCard {
   recent?: SessionEvent[];      // 最近事件摘要
 }
 // build(): O(1) 查询（按 project_key + scope 合并，分层优先级 会话内>项目>用户>全局）
+// build(opts.isolated=true)：隔离模式只列本会话内容（不继承项目/全局），状态卡标注"本会话已隔离"（B⑧）
 // 预算约束：≤200 行 / 单轮注入 token 预算（借鉴 CLAUDE.md 200 行 + workbuddy 分层裁决）
 // 序列化：XML 标签包裹 + 分级格式（critical 区 JSON / context 键值 / recent 摘要），
 //   预算分层 critical 60% / context 25% / recent 15%（默认可配）——见 business-design §2.3
@@ -236,7 +259,7 @@ interface Rebuilder {
 | 底座 | 采集 | 注入 | 查询 | 幂等键 |
 |---|---|---|---|---|
 | Qoder | UserPromptSubmit/PreToolUse/PostToolUse/Stop/PostCompact hooks | UserPromptSubmit → status-card（additionalContext） | MCP server query_session_memory | transcript 事件 uuid |
-| dsh | session/event 订阅（零正文复制） | agent.inject()（进下一条被采纳请求） | ctx.tools 注册 query 工具 | session 事件 id |
+| dsh | session/event 订阅（零正文复制） | agent.inject()（进下一条被采纳请求） | 内嵌 MCP server（bin=`dsh-thread`，profile overlay 挂载；spike 实证 ctx.tools 注册可行，备用接缝） | session 事件 id |
 | Claude Code | hooks（UserPromptSubmit/Stop/PreCompact） | hookSpecificOutput.additionalContext | MCP | 事件 uuid |
 | Codex | hooks / rules | hooks / MCP 注入 | MCP | 事件 uuid |
 
@@ -256,7 +279,7 @@ dsh 原生接缝补充（v2 战略章节已述）：`agent/pre-step` 瀑布可�
 ## 6. 验证体系代码级
 
 - `packages/evals` runner：`runScenario(name, script)`——脚本构造真实会话事件流 → 跑断言；CLI 入口 `pnpm eval`。
-- 回归场景清单 + 断言 + 判据（B⑦ 具体化；**已实现 2026-08-15，eval-cli 聚合 9/9 PASS**）：
+- 回归场景清单 + 断言 + 判据（B⑦ 具体化；**已实现 2026-08-15，eval-cli 聚合 10/10 PASS（B⑧ isolation 并入）**）：
   - decision-chain：决策链跨事件保留 → 断言：压缩后 active 决策仍可检索，判据 = 保留率 ≥90%（实现：JWT→Session 撤销链，superseded/active 断言）
   - repeat-question：已答信息不重复提问 → 断言：检索命中原文，判据 = 命中率 ≥90%（实现：better-sqlite3 决策 + recall 断言）
   - goal-retention：目标跨压缩留存 → 断言：checkpoint 后状态卡含原目标，判据 = 100%（实现：脚手架/CI 双目标 + recall 断言）
@@ -265,6 +288,7 @@ dsh 原生接缝补充（v2 战略章节已述）：`agent/pre-step` 瀑布可�
   - scope-filter：非当前项目硬过滤 → 判据 = 零泄漏（实现：scope-scenario.ts，跨项目零泄漏 + 全局反馈共享）
   - migration-lossless：迁移后 count + 抽样 hash → 判据 = 零差异（实现：migration-scenario.ts，单库→双库复制+回填+完整性）
   - rebuild-recovery：删除派生层后 rebuild 恢复 → 判据 = 与重建前一致（实现：rebuild-scenario.ts，删结构化库后事件流水重放恢复，origin 幂等）
+  - isolation（B⑧ 新增）：会话隔离边界 → 断言：隔离行仅建立会话可见（合并视图/检索/血缘过滤）、tool 事件共享、解除后历史仍隔离、按需沉淀转共享，判据 = 零泄漏（实现：isolation-scenario.ts，双会话隔离/解除/发布全链路）
   - **对比基准（2026-08-14 grill 定案，纳入 B⑦，护城河叙事证据）**：固定 3 场景（decision-chain / repeat-question / goal-retention）跑"外部底座对照"——Claude Code 或 dsh 原生（无 Thread）基线，结果入 metrics 不阻塞 CI 主链（需真实底座环境，CI 跑不了，手动脚本）；产出 = "场景级保真度量无人区"的对比证据，非全量对比（只 3 场景锚点）→ **未实现（待发布前补）**
 - 度量埋点：metrics 表（recall_miss / repeat_question / correction / storage_growth / injection_follow_rate）；B⑤ 埋点后由 evals 汇总输出。
 - CI 门禁：`pnpm eval` 纳入提交前验证链（AGENTS.md：typecheck && lint && test && eval）；回归失败阻塞合入（CI workflow 已加 `pnpm eval` 步骤，2026-08-15）。

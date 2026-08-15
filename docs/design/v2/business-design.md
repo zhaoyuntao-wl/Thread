@@ -11,7 +11,7 @@
 
 ## 1. 端到端业务流程
 
-### 1.1 会话内主流程（Qoder 狗粮基线，其他底座同构）
+### 1.1 会话内主流程（Qoder hooks 基线；dsh 经 `session/event` 订阅同构，现网狗粮）
 
 ```
 SessionStart（可无采集）
@@ -46,7 +46,7 @@ SessionStart（可无采集）
 ### 1.4 安装接入流程（每底座）
 
 - Qoder：`.qoder/settings.json` 挂 hooks（capture 异步 + status-card 同步）+ `.qoder/settings.local.json` 配 MCP server；`/mcp reload` 或新会话生效
-- dsh：`dsh plugin --profile web add dsh-thread`（bundle）或 `--patch thread.cordis.yml`（MCP overlay，零代码）；t-dsh profile 一键
+- dsh：`dsh plugin add dsh-thread`（bundle，一个包闭环）；查询通道 = profile `cordis.patch.yml` 挂 MCP overlay（`npx dsh-thread`，零代码）——README 示例
 - Claude Code / Codex：MCP 配置 + hooks（同构，批 A 已论证）
 
 ### 1.5 升级循环（狗粮）
@@ -107,10 +107,10 @@ SessionStart（可无采集）
 
 ### 2.4 MCP 工具契约（query_session_memory）
 
-- 输入：`query`（必填，关键词/短语）/ `limit`（默认 20，≤50）/ `token_budget`（默认 4000）/ `session_id`（可选，缺省最近活跃会话）/ `project_key`（可选，B② 后）
+- 输入：`query`（必填，关键词/短语）/ `limit`（默认 20，≤50）/ `token_budget`（默认 4000）/ `session_id`（可选，缺省最近活跃会话）/ 结构化参数（`kind` / `since` / `until` / `order` / `count_only`——精确查询路径：审计/抽查/时序/计数，接口内聚同一工具路由）
 - 输出：带证据的片段（命中事件正文 + 引用 origin/spill + 时间戳）；未找到 → not-found 标记 + 追问建议
 - 约束：检索不产生模型调用（零成本）；embedding 可选集成不改变契约
-- **description 内置契约段（2026-08-14 grill 定案，主通道）**：工具描述写死行为契约——"当需要历史细节/上下文/不确定时调用本工具，不要编造；结果带引用"。工具描述 = 适配器常量，模型每轮可见、用户不可改、不进事件流水；与状态卡（纯数据）分离。dsh `ctx.tools` 同名工具同样内置（见 technical-design 不变量 #11 契约载体分层）
+- **description 内置契约段（2026-08-14 grill 定案，主通道）**：工具描述写死行为契约——"当需要历史细节/上下文/不确定时调用本工具，不要编造；结果带引用"。工具描述 = 适配器常量，模型每轮可见、用户不可改、不进事件流水；与状态卡（纯数据）分离。dsh 侧同名工具由 dsh-thread 内嵌 MCP server 提供（spike 实证 `ctx.tools` 注册亦可行，备用接缝）
 
 ### 2.5 检索输出与引用格式
 
@@ -124,11 +124,12 @@ SessionStart（可无采集）
 - **交接卡**：`.thread/handoff.md`——Stop 时生成，新会话读取；内容 = 目标 / active 决策 / 待办 / 最近反馈
 - **错误与降级**：查询失败 → not-found + 建议；库缺失 → 首次运行自动建库；hook 载荷不可解析 → 静默跳过；MCP 不可用 → 状态卡仍注入（注入不依赖查询）
 - **反馈通道**：`/feedback` 命令（产品级）
+- **会话临时隔离（B⑧，2026-08-15 落地）**：自然语言（"隔离/静默/别打扰" ↔ "解除隔离/恢复共享"）或 `/isolate` `/unisolate` 切换本会话隔离——隔离期对话上下文（消息/决策/反馈）仅自己可见，状态卡标注"本会话已隔离"且只列本会话内容（不被其他代理更新干扰）；tool 事件仍共享；解除后历史仍隔离，`/thread-publish <goal|decision|feedback> <id>` 或自然语言按需沉淀转共享
 
 ## 4. 操作约束
 
 - **多项目隔离**（B②）：project_key 推导规则 = **规范化 git 根**（`git rev-parse --show-toplevel` 的 realpath + 分隔符/大小写归一；非 git 项目退化为规范化 cwd），从 hook 载荷 `cwd` 推导（v2 设计 §3）；查询合并 project + global；非当前项目硬过滤；状态卡合并显示
-- **多 Agent 并行**（2026-08-14 定案）：同一用户可同时用多底座处理同一项目不同模块——同项目单库多写者（SQLite WAL + busy_timeout + 写失败重试队列）；事件按 session_id 隔离、同 project_key 合并；跨 agent 状态同步（A 的记录 B 的状态卡可见）是"底座无关"完整形态
+- **多 Agent 并行**（2026-08-14 定案）：同一用户可同时用多底座处理同一项目不同模块——同项目单库多写者（SQLite WAL + busy_timeout + 写失败重试队列）；事件按 session_id 隔离、同 project_key 合并；跨 agent 状态同步（A 的记录 B 的状态卡可见）是"底座无关"完整形态。**B⑧ 会话临时隔离（2026-08-15 落地）**：并行做不相关工作时，任一 agent 可隔离本会话避免状态卡互相干扰（见 §3 用户可见行为）
 - **子代理**：MVP 不采集子代理内部事件；子代理结论经主会话 tool_result 回流并可由轻确认旁路提取候选决策；父子会话血缘为可选边
 - **隐私与安全**：全本地 SQLite（WAL）；结构化表无凭证明文；hook 载荷含路径等本地信息不出库；适配器不做任何云端同步（多机同步非 MVP，D 生态 backlog）
 - **降级矩阵**：采集失败 → 主路径不受影响（异步）；索引失败 → append 回滚（不产生半索引）；**并发写失败 → 入重试队列，不丢弃**；压缩边界注入不采纳（Qoder PreCompact/PostCompact 的 hookSpecificOutput，已实测）→ 状态卡经 UserPromptSubmit 路径兜底；压缩无 checkpoint → 摘要仅靠底座自身（记录缺漏到 metrics）
@@ -159,11 +160,11 @@ SessionStart（可无采集）
 
 **适配度评估框架（五维 0~1，实测修正）**：
 
-| 维度 | Qoder（实测） | dsh（文档 + 待 spike） | Claude（待验证） | Codex（待验证） |
+| 维度 | Qoder（实测） | dsh（实测，现网狗粮） | Claude（待验证） | Codex（待验证） |
 |---|---|---|---|---|
 | 捕获覆盖 | hooks 全事件 ✅ 1.0 | session/event 一等 ✅ 1.0 | hooks 同构 ~0.9 | hooks/rules ~0.9 |
-| 注入保真 | hookSpecificOutput 不采纳 → 0.4（UserPromptSubmit 兜底） | inject() 原生 → 1.0（待验证进摘要） | 待验证 | 待验证 |
-| 检索可达 | MCP ✅ 1.0 | ctx.tools 原生 ✅ 1.0 | MCP ✅ 1.0 | MCP ✅ 1.0 |
+| 注入保真 | hookSpecificOutput 不采纳 → 0.4（UserPromptSubmit 兜底） | inject() 原生 → 1.0（进 session log 已验证） | 待验证 | 待验证 |
+| 检索可达 | MCP ✅ 1.0 | MCP overlay（内嵌 server）✅ 1.0（ctx.tools spike 实证备用） | MCP ✅ 1.0 | MCP ✅ 1.0 |
 | 压缩可见性 | compact_checkpoint ✅ 1.0（实测） | session/event 订阅 → 1.0（待验证） | PreCompact hook → 待验证 | 待验证 |
 | 注入位置可控 | 受限（additionalContext 语义） | 精确（pre-step / inject） | 待验证 | 待验证 |
 

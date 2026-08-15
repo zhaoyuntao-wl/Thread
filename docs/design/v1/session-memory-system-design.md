@@ -1,6 +1,6 @@
 # 会话管理系统设计文档 v1（Session Memory System）
 
-> 日期：2026-08-07 ｜ 状态：**v1 基线**——需求与架构已确认，MVP 已实现（2026-08-07 修订：底座定位修正 + 开源计划；2026-08-12 修订：底座确认为 Qoder CLI，Codewhale 降为第二候选适配器；2026-08-13 修订：按版本拆分——二期规划 / 开放问题 / 作用域设计移至 [v2 文档](../v2/session-memory-system-design.md)）
+> 日期：2026-08-07 ｜ 状态：**v1 基线**——需求与架构已确认，MVP 已实现（2026-08-07 修订：底座定位修正 + 开源计划；2026-08-12 修订：底座确认为 Qoder CLI，Codewhale 降为第二候选适配器；2026-08-13 修订：按版本拆分——二期规划 / 开放问题 / 作用域设计移至 [v2 文档](../v2/session-memory-system-design.md)；2026-08-15 修订：现网状态以 v2 为准——狗粮切换 dsh、许可证统一 MIT、发布形态 = `@thread/core` + `dsh-thread`）
 > 定位：编码 Agent 的**上下文保真**记忆层——独立开源项目 **Thread**（Session memory with lineage for coding agents），底座无关
 
 ---
@@ -125,7 +125,7 @@
 
 ## 10. 底座与接入
 
-- **Qoder CLI = 狗粮底座 + 第一参考适配器**（非二开对象）。
+- **Qoder CLI = 第一参考适配器**（非二开对象；2026-08-14 起狗粮底座为 dsh，Qoder 降为适配器矩阵一员）。
 - 理由：为实际日常使用底座，狗粮数据真实；三弱能力已实证原生支持——hook 事件（UserPromptSubmit / PreToolUse / PostToolUse / Stop，JSON 载荷）、上下文注入（hook stdout `systemMessage` / SDK `additionalContext`）、MCP 客户端（stdio）。
 - **Codewhale（Hmbown/CodeWhale，Rust / MIT，原 DeepSeek CLI 改名项目）= 第二参考适配器（候选）**：hook 能力未验证，待冒烟调研后定级；缺项记差距 + 替代路径，不阻塞核心。
 - 注：验证叙事**不依赖**任何底座"上下文差"的主观判断——验收标准是绝对标准（回归集对比 Claude Code 的公开 auto-compact 问题），非相对优劣。
@@ -157,10 +157,10 @@
 
 - **形态**：独立项目开源（不做任何项目的分支）——通用记忆层，底座无关。
 - **名称**：Thread；副标题 *Session memory with lineage for coding agents*。
-- **许可证**：Apache-2.0（全新代码，无派生负担，企业友好）。
-- **技术栈**：TypeScript/Node；pnpm monorepo（`packages/core` + `packages/adapters/qoder-cli` + `packages/adapters/codewhale`（候选）+ `packages/evals` + `docs`），changesets 统一版本。
-- **适配器**：Qoder CLI 参考适配器内置本仓库（同版本同 CI，保证开箱即跑）；Codewhale 侧只放文档推荐位（候选，能力调研后定）。
-- **狗粮**：日常开发与验证使用 Qoder CLI + SMS。
+- **许可证**：MIT（2026-08-15 拍板统一，原定 Apache-2.0）。
+- **技术栈**：TypeScript/Node；pnpm monorepo（`packages/core` + `packages/adapters/qoder-cli` + `packages/adapters/dsh` + `packages/evals` + `docs`；Codewhale 适配器仍为候选，未入库），changesets 统一版本。
+- **适配器**：Qoder CLI 参考适配器内置本仓库（同版本同 CI，保证开箱即跑）；dsh 旗舰插件 `dsh-thread`（2026-08-14 起现网狗粮）；Codewhale 侧只放文档推荐位（候选，能力调研后定）。
+- **狗粮**：日常开发与验证使用 dsh（`dsh-thread` 插件 + Thread MCP 查询通道）；Qoder hooks 通道保留。
 
 ### 发布节奏（三阶段）
 
@@ -170,7 +170,7 @@
 
 ### 开源标准建设（从第一行代码起）
 
-- Apache-2.0 LICENSE、CI（typecheck / lint / test / evals 冒烟）、README 骨架、issue 模板、CONTRIBUTING。
+- MIT LICENSE、CI（typecheck / lint / test / evals 冒烟）、README 骨架、issue 模板、CONTRIBUTING。
 
 ## 13. 成本模型（tokens / 缓存 / 调用次数）
 

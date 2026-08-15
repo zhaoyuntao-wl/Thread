@@ -17,8 +17,8 @@ Maintainers: see [MAINTAINING.md](./MAINTAINING.md) for the release workflow.
 ## Development
 
 - Node >= 20, pnpm >= 9.
-- Monorepo layout: `packages/core`, `packages/adapters/qoder-cli`, `packages/adapters/dsh`,
-  `packages/mcp`, `packages/t-dsh`, `packages/evals`.
+- Monorepo layout: `packages/core`, `packages/adapters/dsh` (`dsh-thread`),
+  `packages/adapters/qoder-cli`, `packages/evals`.
 - Every package must pass: `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm eval`.
 - Versioning via changesets: add a changeset for any user-visible change:
 
