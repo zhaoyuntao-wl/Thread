@@ -256,18 +256,18 @@ dsh 原生接缝补充（v2 战略章节已述）：`agent/pre-step` 瀑布可�
 ## 6. 验证体系代码级
 
 - `packages/evals` runner：`runScenario(name, script)`——脚本构造真实会话事件流 → 跑断言；CLI 入口 `pnpm eval`。
-- 回归场景清单 + 断言 + 判据（B⑦ 具体化）：
-  - decision-chain：决策链跨事件保留 → 断言：压缩后 active 决策仍可检索，判据 = 保留率 ≥90%
-  - repeat-question：已答信息不重复提问 → 断言：检索命中原文，判据 = 命中率 ≥90%
-  - goal-retention：目标跨压缩留存 → 断言：checkpoint 后状态卡含原目标，判据 = 100%
-  - compact-fidelity（B⑦ 新增）：压缩掉细节可回拉 → 断言：expand 返回原文，判据 = 回拉成功率 ≥95%
-  - injection-follow：状态卡 active 决策被遵循 → 判据 = 遵循率 ≥80%（轻确认旁路 + 人工抽查采样）
-  - scope-filter：非当前项目硬过滤 → 判据 = 零泄漏
-  - migration-lossless：迁移后 count + 抽样 hash → 判据 = 零差异
-  - rebuild-recovery：删除派生层后 rebuild 恢复 → 判据 = 与重建前一致
-  - **对比基准（2026-08-14 grill 定案，纳入 B⑦，护城河叙事证据）**：固定 3 场景（decision-chain / repeat-question / goal-retention）跑"外部底座对照"——Claude Code 或 dsh 原生（无 Thread）基线，结果入 metrics 不阻塞 CI 主链（需真实底座环境，CI 跑不了，手动脚本）；产出 = "场景级保真度量无人区"的对比证据，非全量对比（只 3 场景锚点）
+- 回归场景清单 + 断言 + 判据（B⑦ 具体化；**已实现 2026-08-15，eval-cli 聚合 9/9 PASS**）：
+  - decision-chain：决策链跨事件保留 → 断言：压缩后 active 决策仍可检索，判据 = 保留率 ≥90%（实现：JWT→Session 撤销链，superseded/active 断言）
+  - repeat-question：已答信息不重复提问 → 断言：检索命中原文，判据 = 命中率 ≥90%（实现：better-sqlite3 决策 + recall 断言）
+  - goal-retention：目标跨压缩留存 → 断言：checkpoint 后状态卡含原目标，判据 = 100%（实现：脚手架/CI 双目标 + recall 断言）
+  - compact-fidelity（B⑦ 新增）：压缩掉细节可回拉 → 断言：expand 返回原文，判据 = 回拉成功率 ≥95%（实现：compact 事件入流水 + 压缩边界后决策/目标/细节回拉断言）
+  - injection-follow：状态卡 active 决策被遵循 → 判据 = 遵循率 ≥80%（实现：状态卡覆盖 active 决策/目标/偏好断言；遵循率实测待 B⑤ 埋点）
+  - scope-filter：非当前项目硬过滤 → 判据 = 零泄漏（实现：scope-scenario.ts，跨项目零泄漏 + 全局反馈共享）
+  - migration-lossless：迁移后 count + 抽样 hash → 判据 = 零差异（实现：migration-scenario.ts，单库→双库复制+回填+完整性）
+  - rebuild-recovery：删除派生层后 rebuild 恢复 → 判据 = 与重建前一致（实现：rebuild-scenario.ts，删结构化库后事件流水重放恢复，origin 幂等）
+  - **对比基准（2026-08-14 grill 定案，纳入 B⑦，护城河叙事证据）**：固定 3 场景（decision-chain / repeat-question / goal-retention）跑"外部底座对照"——Claude Code 或 dsh 原生（无 Thread）基线，结果入 metrics 不阻塞 CI 主链（需真实底座环境，CI 跑不了，手动脚本）；产出 = "场景级保真度量无人区"的对比证据，非全量对比（只 3 场景锚点）→ **未实现（待发布前补）**
 - 度量埋点：metrics 表（recall_miss / repeat_question / correction / storage_growth / injection_follow_rate）；B⑤ 埋点后由 evals 汇总输出。
-- CI 门禁：`pnpm eval` 纳入提交前验证链（AGENTS.md：typecheck && lint && test）；回归失败阻塞合入。
+- CI 门禁：`pnpm eval` 纳入提交前验证链（AGENTS.md：typecheck && lint && test && eval）；回归失败阻塞合入（CI workflow 已加 `pnpm eval` 步骤，2026-08-15）。
 
 ## 7. 存储治理代码级
 

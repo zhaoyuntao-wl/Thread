@@ -74,7 +74,7 @@
 
 | # | 功能 | 状态 | 验证维度 | 双代理验证点 |
 |---|---|---|---|---|
-| H1 | 回归集 evals（作用域/继承/幂等/spill/迁移场景） | ✅ | T | 双代理推进的功能每批补回归 |
+| H1 | 回归集 evals（B⑦ 场景级保真） | ✅ | T | **B⑦ 已实现 2026-08-15**：6 turns 场景（decision-chain / goal-retention / repeat-question / file-lineage / compact-fidelity / injection-follow）+ 3 专项（scope-filter / migration-lossless / rebuild-recovery），`pnpm eval` 聚合 9/9 PASS + 非零退出码，CI 门禁已加（ci.yml） |
 | H2 | 场景级保真度量 | ⚪ | — | 规划（B⑤ 度量埋点） |
 | H3 | 知识记忆轨/一体化记忆轨 | ⚪ | — | 规划（B⑥） |
 

@@ -23,6 +23,7 @@ pnpm install       # 安装依赖
 pnpm typecheck     # build + 类型检查（全部包）
 pnpm lint          # eslint
 pnpm test          # vitest
+pnpm eval          # B⑦ 场景级保真回归集（9 场景聚合，CI 门禁）
 pnpm build         # 编译全部包（core 先构建，依赖拓扑自动排序）
 pnpm changeset     # 用户可见变更需生成 changeset
 ```
@@ -33,7 +34,7 @@ pnpm changeset     # 用户可见变更需生成 changeset
 - 不写注释，除非 WHY 非显而易见。
 - 测试放源码旁：`src/**/*.test.ts`。
 - 用户可见变更必须附带 changeset。
-- 提交前跑完整验证链：`pnpm typecheck && pnpm lint && pnpm test`。
+- 提交前跑完整验证链：`pnpm typecheck && pnpm lint && pnpm test && pnpm eval`。
 
 ## 工作流约定
 
