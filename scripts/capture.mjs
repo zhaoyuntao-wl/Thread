@@ -4,11 +4,11 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-// 会话临时隔离指令识别（显式命令 + 自然语言，双通道）
-const ISOLATE_RE = /^(?:\/isolate|[/／]isolate)\b|(?:进入|开启|启用|先)?(?:临时)?(?:隔离|静默|免打扰|别打扰|屏蔽)/;
-const UNISOLATE_RE = /^(?:\/unisolate|[/／]unisolate)\b|(?:解除|退出|关闭)(?:隔离|静默)|恢复共享/;
-const PUBLISH_CMD_RE = /^\/thread-publish\s+(goal|decision|feedback)\s+(\d+)\b/;
-const PUBLISH_NL_RE = /把(?:刚才|刚才的)?(?:这个)?(?:决策|决定|目标|偏好)(?:共享|公开|同步)(?:出去|给项目)?/;
+// 会话临时隔离指令识别：整条消息精确匹配白名单（开放项⑦定案，防讨论性语句误触发）
+const ISOLATE_RE = /^(?:\/isolate|[/／]isolate|隔离|开始隔离|进入隔离|临时隔离|静默|免打扰|别打扰)$/;
+const UNISOLATE_RE = /^(?:\/unisolate|[/／]unisolate|解除隔离|退出隔离|恢复共享)$/;
+const PUBLISH_CMD_RE = /^\/thread-publish\s+(goal|decision|feedback)\s+(\d+)$/;
+const PUBLISH_NL_RE = /^把(?:刚才|刚才的)?(?:这个)?(?:决策|决定|目标|偏好)(?:共享|公开|同步)(?:出去|给项目)?$/;
 
 function tableForKind(kind) {
   return kind === "goal" ? "goals" : kind === "decision" ? "decisions" : "feedback";
