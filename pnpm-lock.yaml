@@ -35,12 +35,18 @@ importers:
 
   packages/adapters/dsh:
     dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.30.0
+        version: 1.30.0(zod@4.4.3)
       '@thread/core':
         specifier: workspace:*
         version: link:../../core
       better-sqlite3:
         specifier: ^12.0.0
         version: 12.11.1
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.1
@@ -95,23 +101,6 @@ importers:
       better-sqlite3:
         specifier: ^12.11.1
         version: 12.11.1
-
-  packages/mcp:
-    dependencies:
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.30.0
-        version: 1.30.0(zod@4.4.3)
-      '@thread/core':
-        specifier: workspace:*
-        version: link:../core
-      better-sqlite3:
-        specifier: ^12.0.0
-        version: 12.11.1
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
-
-  packages/t-dsh: {}
 
 packages:
 
