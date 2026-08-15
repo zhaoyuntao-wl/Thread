@@ -5,6 +5,7 @@ Thanks for your interest. The design lives in
 (v1 baseline) and
 [docs/design/v2/session-memory-system-design.md](./docs/design/v2/session-memory-system-design.md)
 (phase-2 plans). Before opening issues or PRs, please read both.
+Maintainers: see [MAINTAINING.md](./MAINTAINING.md) for the release workflow.
 
 ## Reporting issues
 
