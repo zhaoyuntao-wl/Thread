@@ -70,6 +70,7 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
       .forEach((e) => lines.push(`  - ${e.kind}: ${e.body.slice(0, 60)}`));
   }
   lines.push("需要更早的历史细节时，调用 query_session_memory 工具查询。");
+  lines.push("收到 隔离//unisolate//thread-publish 单命令时，只回一句状态确认，不展开思考。");
 
   return lines.slice(0, budgetLines).join("\n");
 }

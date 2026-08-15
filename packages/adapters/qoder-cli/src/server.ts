@@ -40,7 +40,7 @@ server.tool(
     if (!sessionId) {
       return {
         content: [
-          { type: "text" as const, text: JSON.stringify({ status: "not-found", results: [], note: "会话记忆为空：尚无事件写入。" }, null, 2) },
+          { type: "text" as const, text: JSON.stringify({ status: "not-found", results: [], note: "会话记忆为空：尚无事件写入。", session_isolation: null }, null, 2) },
         ],
       };
     }
@@ -65,7 +65,7 @@ server.tool(
           limit: args.limit,
         });
     return {
-      content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+      content: [{ type: "text" as const, text: JSON.stringify({ ...result, session_isolation: store.getSessionIsolation(sessionId) }, null, 2) }],
     };
   },
 );

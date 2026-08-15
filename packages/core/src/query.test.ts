@@ -144,4 +144,13 @@ describe("queryMemory", () => {
     expect(result.status).toBe("not-found");
     expect(result.results).toHaveLength(0);
   });
+
+  it("queryEvents exposes isolation flag on event rows (⑨)", () => {
+    const result = queryEvents(store, { sessionId: "q-iso", order: "desc" });
+    expect(result.status).toBe("found");
+    const hit = result.results.find((r) => r.body.includes("红隼"));
+    expect(hit?.isolation).toBe(1);
+    const shared = queryEvents(store, { sessionId: "q1", order: "desc" });
+    expect(shared.results.every((r) => r.isolation === 0)).toBe(true);
+  });
 });

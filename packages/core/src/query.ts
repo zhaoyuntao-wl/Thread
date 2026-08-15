@@ -14,6 +14,7 @@ export interface QueryHit {
   seq: number;
   body: string;
   score: number;
+  isolation?: number;
 }
 
 export type QueryStatus = "found" | "degraded" | "not-found";
@@ -133,7 +134,7 @@ export function queryEvents(store: ThreadStore, opts: StructuredQueryOptions): S
   const limit = Math.min(opts.limit ?? 20, 50);
   const rows = store.eventsDb
     .prepare(
-      `SELECT id, session_id, kind, ts, seq, body, truncated FROM events ${whereSql} ORDER BY ts ${order}, id ${order} LIMIT ?`,
+      `SELECT id, session_id, kind, ts, seq, body, truncated, isolation FROM events ${whereSql} ORDER BY ts ${order}, id ${order} LIMIT ?`,
     )
     .all(...params, limit) as Array<{
     id: number;
@@ -143,6 +144,7 @@ export function queryEvents(store: ThreadStore, opts: StructuredQueryOptions): S
     seq: number;
     body: string;
     truncated: number;
+    isolation: number;
   }>;
   if (rows.length === 0) {
     return { status: "not-found", results: [] };
@@ -156,6 +158,7 @@ export function queryEvents(store: ThreadStore, opts: StructuredQueryOptions): S
       seq: r.seq,
       body: r.body,
       score: 0,
+      isolation: r.isolation,
     })),
   };
 }
