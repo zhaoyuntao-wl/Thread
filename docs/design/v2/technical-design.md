@@ -108,7 +108,7 @@ FTS5 只对 `indexable` 事件建索引。indexable 集合：`user_message`、`a
 
 ### 2.4 迁移（B④ → 物理分库，见专篇）
 
-B② 已落地 ensureSchema 幂等迁移（schema v1 → v2 加列/建表，schema.ts）。B④ 为**物理分库**（用户级结构化库 + 项目事件库），代码级设计见 [B④ 物理分库专篇](./b4-storage-split.md)；迁移核心逻辑在 `packages/core/src/migrate.ts`，`scripts/migrate-split.mjs` 仅 CLI 包装。
+B② 已落地 ensureSchema 幂等迁移（schema v1 → v2 加列/建表，schema.ts）。B④ 为**物理分库**（用户级结构化库 + 项目事件库），代码级设计见 [B④ 物理分库专篇](./b4-storage-split.md)；迁移核心逻辑在 `packages/core/src/migrate.ts`（纯函数，可被测试直接 import，CLI 包装脚本为本地运维工具、不随公开仓库分发）。
 
 **写者暂停协议（2026-08-14 评审修订，替代原定案）**：原定案"禁止无暂停协议下在线迁移"针对**原地结构变更 + 并发写**组合风险（SQLite DDL + 并发写）。B④ 采用**复制式迁移**——旧库只读、不改旧库 DDL，新库独立写入，组合风险解除，不再需要写者暂停协议；零差异由**增量重放**保证（快照后 `id > snapshot_id` 增量按 origin 幂等补拉，见专篇 §7）。
 

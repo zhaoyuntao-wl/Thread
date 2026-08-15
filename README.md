@@ -6,7 +6,7 @@ Thread is a base-agnostic memory layer for coding agents. Instead of lossy conte
 compression, it stores the full event stream of a session losslessly and retrieves
 on demand — goals, decisions, feedback, and lineage stay intact across long tasks.
 
-> Status: private development (MVP). Design: [v1 baseline](./docs/design/v1/session-memory-system-design.md) · [v2 plans](./docs/design/v2/session-memory-system-design.md)
+> Status: v0.1 in development. Design: [v1 baseline](./docs/design/v1/session-memory-system-design.md) · [v2 plans](./docs/design/v2/session-memory-system-design.md)
 
 ## Why
 
@@ -36,6 +36,9 @@ SMS runs as a separate process. Bases are connected through three weak capabilit
 |---|---|
 | `@thread/core` | Event pipeline, structured tables (goals/decisions/feedback), lineage graph, BM25 retrieval |
 | `@thread/adapter-qoder-cli` | Reference adapter for Qoder CLI (hooks ingestion, context injection, MCP query tool) |
+| `dsh-thread` | Flagship dsh plugin: session/event capture + per-turn status-card injection |
+| `thread-mcp` | Standalone MCP server (`query_session_memory` tool) for any MCP-capable host |
+| `t-dsh` | One-command dsh profile installer (`dsh --profile thread`) |
 | `@thread/evals` | Regression suite: long-task scenarios, fact-retention checks |
 
 ## Development
@@ -47,10 +50,11 @@ pnpm install
 pnpm typecheck
 pnpm lint
 pnpm test
+pnpm eval     # scenario-level fidelity regression suite
 ```
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidelines.
 
 ## License
 
-Apache-2.0. See [LICENSE](./LICENSE).
+MIT. See [LICENSE](./LICENSE).

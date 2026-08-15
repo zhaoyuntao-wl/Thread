@@ -1,10 +1,10 @@
 # Contributing to Thread
 
-Thanks for your interest. Thread is in private development — the MVP scope is fixed in
+Thanks for your interest. The design lives in
 [docs/design/v1/session-memory-system-design.md](./docs/design/v1/session-memory-system-design.md)
-(v1 baseline); phase-2 plans live in
-[docs/design/v2/session-memory-system-design.md](./docs/design/v2/session-memory-system-design.md).
-Before opening issues or PRs, please read both.
+(v1 baseline) and
+[docs/design/v2/session-memory-system-design.md](./docs/design/v2/session-memory-system-design.md)
+(phase-2 plans). Before opening issues or PRs, please read both.
 
 ## Reporting issues
 
@@ -16,8 +16,9 @@ Before opening issues or PRs, please read both.
 ## Development
 
 - Node >= 20, pnpm >= 9.
-- Monorepo layout: `packages/core`, `packages/adapters/qoder-cli`, `packages/evals`.
-- Every package must pass: `pnpm typecheck`, `pnpm lint`, `pnpm test`.
+- Monorepo layout: `packages/core`, `packages/adapters/qoder-cli`, `packages/adapters/dsh`,
+  `packages/mcp`, `packages/t-dsh`, `packages/evals`.
+- Every package must pass: `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm eval`.
 - Versioning via changesets: add a changeset for any user-visible change:
 
 ```sh
@@ -33,5 +34,5 @@ pnpm changeset
 ## Pull requests
 
 1. Small, focused changes are preferred.
-2. Run `pnpm install`, `pnpm typecheck`, `pnpm lint`, `pnpm test` locally.
+2. Run `pnpm install`, `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm eval` locally.
 3. CI runs the same checks on GitHub Actions.

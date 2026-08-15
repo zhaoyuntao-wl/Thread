@@ -101,9 +101,9 @@ eventsDbPath     = join(root, "projects", deriveProjectKeyHash(cwd), "events.db"
 
 ## 7. 迁移（逻辑入 core，脚本仅 CLI 包装）
 
-**模块归属（2026-08-14 评审修正）**：迁移核心逻辑进 `packages/core/src/migrate.ts`（纯函数、可被 core 测试 import），`scripts/migrate-split.mjs` 只做 CLI 包装（参数解析 + 调用 + 报告输出）。
+**模块归属（2026-08-14 评审修正）**：迁移核心逻辑进 `packages/core/src/migrate.ts`（纯函数、可被 core 测试 import）；CLI 包装脚本为本地运维工具（一次性迁移用途，2026-08-15 起不随公开仓库分发）。
 
-**用法**：`node scripts/migrate-split.mjs [--old <sms.db 路径>] [--root <THREAD_ROOT>] [--dry-run]`
+**用法（core API）**：`import { migrateSplit, replayIncrement } from "@thread/core"`（脚本用法见 migrate.test.ts 用例）
 
 **流程**（migrate.ts）：
 1. 只读打开旧库；读全表数据。

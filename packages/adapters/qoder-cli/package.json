@@ -2,6 +2,7 @@
   "name": "@thread/adapter-qoder-cli",
   "version": "0.0.0",
   "description": "Thread adapter for Qoder CLI: hooks ingestion, context injection, MCP query tool",
+  "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

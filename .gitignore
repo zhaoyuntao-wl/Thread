@@ -28,3 +28,10 @@ Thumbs.db
 .thread/
 # Added by code-review-graph
 .code-review-graph/
+
+# Internal development docs (kept locally, excluded from public repo)
+AGENTS.md
+QODER.md
+docs/thread-feature-checklist.md
+docs/open-source-audit.memo.md
+.thread/
