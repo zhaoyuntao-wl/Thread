@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS events (
   project_key TEXT,
   scope TEXT NOT NULL DEFAULT 'project',
   origin TEXT,
-  spilled INTEGER NOT NULL DEFAULT 0
+  spilled INTEGER NOT NULL DEFAULT 0,
+  isolation INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, seq);
 
@@ -82,7 +83,8 @@ CREATE TABLE IF NOT EXISTS goals (
   created_at TEXT NOT NULL,
   project_key TEXT,
   scope TEXT NOT NULL DEFAULT 'project',
-  origin TEXT
+  origin TEXT,
+  isolation INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_goals_session ON goals(session_id, id);
 
@@ -97,7 +99,8 @@ CREATE TABLE IF NOT EXISTS decisions (
   updated_at TEXT NOT NULL,
   project_key TEXT,
   scope TEXT NOT NULL DEFAULT 'project',
-  origin TEXT
+  origin TEXT,
+  isolation INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_decisions_session ON decisions(session_id, status);
 
@@ -110,9 +113,16 @@ CREATE TABLE IF NOT EXISTS feedback (
   created_at TEXT NOT NULL,
   project_key TEXT,
   scope TEXT NOT NULL DEFAULT 'project',
-  origin TEXT
+  origin TEXT,
+  isolation INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_feedback_session ON feedback(session_id, id);
+
+CREATE TABLE IF NOT EXISTS session_isolation (
+  session_id TEXT PRIMARY KEY,
+  isolated INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS lineage_edges (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -168,6 +178,7 @@ export interface AppendOptions {
   scope?: "global" | "project";
   origin?: string;
   spillRef?: string;
+  isolation?: boolean;
 }
 
 export interface StructuredWriteOptions {
@@ -176,6 +187,7 @@ export interface StructuredWriteOptions {
   scope?: "session" | "project" | "global";
   projectKey?: string;
   origin?: string;
+  isolation?: boolean;
 }
 
 export interface Episode {
@@ -198,6 +210,7 @@ export interface Goal {
   project_key?: string | null;
   scope?: string;
   origin?: string | null;
+  isolation?: number;
 }
 
 export interface Decision {
@@ -212,6 +225,7 @@ export interface Decision {
   project_key?: string | null;
   scope?: string;
   origin?: string | null;
+  isolation?: number;
 }
 
 export interface FeedbackRow {
@@ -224,6 +238,7 @@ export interface FeedbackRow {
   project_key?: string | null;
   scope?: string;
   origin?: string | null;
+  isolation?: number;
 }
 
 export interface LineageNeighbor {
@@ -271,7 +286,17 @@ export class ThreadStore {
   }
 
   // 引用回拉：spill.blob → spills 表；无 spill 返回事件 body；不可回拉返回 body + 缺失标记
-  expand(eventId: number): string {
+  // 隔离保护：隔离事件的原文仅其所属会话可回拉（sessionId 缺省时隔离内容不可见）
+  expand(eventId: number, opts: { sessionId?: string } = {}): string {
+    const meta = this.eventsDb
+      .prepare(`SELECT session_id, isolation FROM events WHERE id = ?`)
+      .get(eventId) as { session_id: string; isolation: number } | undefined;
+    if (!meta) {
+      return `[缺失: event ${eventId} 不存在]`;
+    }
+    if (meta.isolation === 1 && opts.sessionId !== meta.session_id) {
+      return `[隔离内容不可见: event ${eventId} 属于隔离会话]`;
+    }
     const spill = this.eventsDb
       .prepare(`SELECT blob, ref FROM spills WHERE event_id = ? LIMIT 1`)
       .get(eventId) as { blob: string | null; ref: string } | undefined;
@@ -307,7 +332,7 @@ export class ThreadStore {
   append(
     event: Omit<SessionEvent, "id" | "seq" | "truncated">,
     opts: AppendOptions = {},
-  ): SessionEvent & { project_key?: string; scope?: string; origin?: string; spilled?: number } {
+  ): SessionEvent & { project_key?: string; scope?: string; origin?: string; spilled?: number; isolation?: number } {
     return this.eventsDb.transaction(() => {
       if (opts.origin) {
         const existing = this.eventsDb
@@ -332,10 +357,12 @@ export class ThreadStore {
       const storedBody = spill.spill ? spill.kept : body;
 
       const seq = this.nextSeq(event.session_id);
+      // 项目事实（tool 类事件）强制共享：隔离只作用于对话上下文，事实血缘不断链
+      const isolation = isToolKind(event.kind) ? 0 : opts.isolation ? 1 : 0;
       this.eventsDb
         .prepare(
-          `INSERT INTO events (session_id, kind, ts, seq, body, meta, truncated, project_key, scope, origin, spilled)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO events (session_id, kind, ts, seq, body, meta, truncated, project_key, scope, origin, spilled, isolation)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           event.session_id,
@@ -349,6 +376,7 @@ export class ThreadStore {
           opts.scope ?? "project",
           opts.origin ?? null,
           spill.spill ? 1 : 0,
+          isolation,
         );
       const eventId = this.eventsDb.prepare(`SELECT last_insert_rowid() AS id`).get() as { id: number };
 
@@ -391,6 +419,7 @@ export class ThreadStore {
         scope: opts.scope ?? "project",
         origin: opts.origin,
         spilled: spill.spill ? 1 : 0,
+        isolation,
       };
     })();
   }
@@ -410,8 +439,11 @@ export class ThreadStore {
       WHERE events_fts MATCH ?`;
     const params: unknown[] = [ftsQuery];
     if (opts.sessionId) {
-      sql += ` AND e.session_id = ?`;
+      // 当前会话可见自己的全部内容（含隔离），其他会话只见未隔离行
+      sql += ` AND (e.session_id = ? OR e.isolation = 0)`;
       params.push(opts.sessionId);
+    } else {
+      sql += ` AND e.isolation = 0`;
     }
     sql += ` ORDER BY score LIMIT ?`;
     params.push(opts.limit ?? 20);
@@ -446,8 +478,8 @@ export class ThreadStore {
     const ts = opts.ts ?? new Date().toISOString();
     const goal = this.structuredDb
       .prepare(
-        `INSERT INTO goals (session_id, text, status, source_event, created_at, project_key, scope, origin)
-         VALUES (?, ?, 'active', ?, ?, ?, ?, ?) RETURNING *`,
+        `INSERT INTO goals (session_id, text, status, source_event, created_at, project_key, scope, origin, isolation)
+         VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?) RETURNING *`,
       )
       .get(
         sessionId,
@@ -457,6 +489,7 @@ export class ThreadStore {
         opts.scope === "global" ? null : opts.projectKey ?? this.projectKey ?? null,
         opts.scope ?? "project",
         opts.origin ?? null,
+        opts.isolation ? 1 : 0,
       ) as Goal;
     if (opts.sourceEvent) {
       this.addLineageEdge(sessionId, "goal", goal.id, "event", opts.sourceEvent, "derived_from", {
@@ -514,8 +547,8 @@ export class ThreadStore {
     const ts = opts.ts ?? new Date().toISOString();
     return this.structuredDb
       .prepare(
-        `INSERT INTO feedback (session_id, text, kind, source_event, created_at, project_key, scope, origin)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+        `INSERT INTO feedback (session_id, text, kind, source_event, created_at, project_key, scope, origin, isolation)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
       )
       .get(
         sessionId,
@@ -526,6 +559,7 @@ export class ThreadStore {
         opts.scope === "global" ? null : opts.projectKey ?? this.projectKey ?? null,
         opts.scope ?? "project",
         opts.origin ?? null,
+        opts.isolation ? 1 : 0,
       ) as FeedbackRow;
   }
 
@@ -549,8 +583,8 @@ export class ThreadStore {
     const ts = opts.ts ?? new Date().toISOString();
     const decision = this.structuredDb
       .prepare(
-        `INSERT INTO decisions (session_id, text, status, source_event, created_at, updated_at, project_key, scope, origin)
-         VALUES (?, ?, 'proposed', ?, ?, ?, ?, ?, ?) RETURNING *`,
+        `INSERT INTO decisions (session_id, text, status, source_event, created_at, updated_at, project_key, scope, origin, isolation)
+         VALUES (?, ?, 'proposed', ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
       )
       .get(
         sessionId,
@@ -561,6 +595,7 @@ export class ThreadStore {
         opts.scope === "global" ? null : opts.projectKey ?? this.projectKey ?? null,
         opts.scope ?? "project",
         opts.origin ?? null,
+        opts.isolation ? 1 : 0,
       ) as Decision;
     if (opts.sourceEvent) {
       this.addLineageEdge(sessionId, "decision", decision.id, "event", opts.sourceEvent, "derived_from", {
@@ -629,10 +664,10 @@ export class ThreadStore {
     }
     const replacement = this.structuredDb
       .prepare(
-        `INSERT INTO decisions (session_id, text, status, superseded_by, source_event, created_at, updated_at)
-         VALUES (?, ?, 'active', NULL, ?, ?, ?) RETURNING *`,
+        `INSERT INTO decisions (session_id, text, status, superseded_by, source_event, created_at, updated_at, isolation)
+         VALUES (?, ?, 'active', NULL, ?, ?, ?, ?) RETURNING *`,
       )
-      .get(sessionId, replacementText, opts.sourceEvent ?? null, ts, ts) as Decision;
+      .get(sessionId, replacementText, opts.sourceEvent ?? null, ts, ts, target.isolation ?? 0) as Decision;
     const superseded = this.transitionDecision(target, "superseded", ts, replacement.id);
     this.addLineageEdge(sessionId, "decision", target.id, "decision", replacement.id, "supersedes", {
       ts,
@@ -649,6 +684,7 @@ export class ThreadStore {
   }
 
   // 作用域合并（B②）：当前会话全部 active + 同项目 project 级 active（其他会话建立）——非当前项目硬过滤
+  // 隔离过滤：其他会话的隔离行（isolation=1）不可见
   getActiveDecisionsMerged(sessionId: string, projectKey?: string): Decision[] {
     if (!projectKey) {
       return this.getActiveDecisions(sessionId);
@@ -658,9 +694,10 @@ export class ThreadStore {
         `SELECT * FROM decisions
          WHERE status = 'active'
            AND (session_id = ? OR (project_key = ? AND scope = 'project'))
+           AND (session_id = ? OR isolation = 0)
          ORDER BY id`,
       )
-      .all(sessionId, projectKey) as Decision[];
+      .all(sessionId, projectKey, sessionId) as Decision[];
   }
 
   getActiveGoalsMerged(sessionId: string, projectKey?: string): Goal[] {
@@ -672,20 +709,23 @@ export class ThreadStore {
         `SELECT * FROM goals
          WHERE status = 'active'
            AND (session_id = ? OR (project_key = ? AND scope = 'project'))
+           AND (session_id = ? OR isolation = 0)
          ORDER BY id`,
       )
-      .all(sessionId, projectKey) as Goal[];
+      .all(sessionId, projectKey, sessionId) as Goal[];
   }
 
   // 反馈合并：当前会话 + 同项目 project 级 + global 级（跨项目共享），去重按 text
+  // 隔离过滤：其他会话的隔离行不可见
   getFeedbackMerged(sessionId: string, projectKey: string | undefined, limit = 5): FeedbackRow[] {
     const rows = this.structuredDb
       .prepare(
         `SELECT * FROM feedback
-         WHERE session_id = ? OR scope = 'global' OR (project_key = ? AND scope = 'project')
+         WHERE (session_id = ? OR scope = 'global' OR (project_key = ? AND scope = 'project'))
+           AND (session_id = ? OR isolation = 0)
          ORDER BY id DESC LIMIT ?`,
       )
-      .all(sessionId, projectKey ?? "", limit) as FeedbackRow[];
+      .all(sessionId, projectKey ?? "", sessionId, limit) as FeedbackRow[];
     const seen = new Set<string>();
     const out: FeedbackRow[] = [];
     for (const row of rows) {
@@ -696,6 +736,31 @@ export class ThreadStore {
       out.push(row);
     }
     return out;
+  }
+
+  // 会话临时隔离（B⑧）：会话级可变开关——隔离期间对话上下文仅自己可见，项目事实（tool）仍共享
+  setSessionIsolation(sessionId: string, isolated: boolean): void {
+    this.structuredDb
+      .prepare(
+        `INSERT INTO session_isolation (session_id, isolated, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(session_id) DO UPDATE SET isolated = excluded.isolated, updated_at = excluded.updated_at`,
+      )
+      .run(sessionId, isolated ? 1 : 0, new Date().toISOString());
+  }
+
+  getSessionIsolation(sessionId: string): boolean {
+    const row = this.structuredDb
+      .prepare(`SELECT isolated FROM session_isolation WHERE session_id = ?`)
+      .get(sessionId) as { isolated: number } | undefined;
+    return row?.isolated === 1;
+  }
+
+  // 沉淀：清除指定结构化行的隔离标记（隔离会话期间产生的决策按需转共享）
+  unisolateRow(sessionId: string, table: "goals" | "decisions" | "feedback", id: number): boolean {
+    const row = this.structuredDb
+      .prepare(`UPDATE ${table} SET isolation = 0 WHERE id = ? AND session_id = ? RETURNING id`)
+      .get(id, sessionId) as { id: number } | undefined;
+    return row !== undefined;
   }
 
   getLatestProposed(sessionId: string): Decision | undefined {
@@ -845,6 +910,10 @@ function openDb(path: string, schema: string, kind: "events" | "structured"): Da
   db.exec(schema);
   ensureSchema(db, kind);
   return db;
+}
+
+function isToolKind(kind: EventKind): boolean {
+  return kind === "tool_call" || kind === "tool_result";
 }
 
 function toFtsQuery(query: string): string {

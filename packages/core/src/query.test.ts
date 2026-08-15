@@ -59,9 +59,25 @@ describe("queryMemory", () => {
     expect(result.note).toContain("建议");
   });
 
-  it("filters by session", () => {
-    const result = queryMemory(store, "bcrypt", { sessionId: "q2" });
-    expect(result.status).toBe("not-found");
+  it("filters by session and hides isolated content from others", () => {
+    // 未隔离内容跨会话可见（跨会话继承检索语义）
+    const visible = queryMemory(store, "bcrypt", { sessionId: "q2" });
+    expect(visible.status).toBe("found");
+    // 隔离内容对其他会话不可见（全链路过滤）
+    store.append(
+      {
+        session_id: "q-iso",
+        kind: "user_message",
+        ts: "2026-08-13T00:00:04.000Z",
+        body: "秘密计划代号红隼",
+      },
+      { isolation: true },
+    );
+    const hidden = queryMemory(store, "红隼", { sessionId: "q2" });
+    expect(hidden.status).toBe("not-found");
+    // 隔离会话自己可见
+    const self = queryMemory(store, "红隼", { sessionId: "q-iso" });
+    expect(self.status).toBe("found");
   });
 
   it("respects token budget", () => {

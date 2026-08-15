@@ -9,6 +9,7 @@ export interface BuildStatusCardOptions {
   projectKey?: string;
   budgetLines?: number;
   recentCount?: number;
+  isolated?: boolean;
 }
 
 export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions): string {
@@ -16,15 +17,23 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
   const projectKey = opts.projectKey;
   const budgetLines = opts.budgetLines ?? 100;
   const recentCount = opts.recentCount ?? 3;
+  const isolated = opts.isolated ?? false;
 
   let goals: Array<{ text: string; scope?: string | null; session_id: string }> = [];
   let decisions: Array<{ text: string; scope?: string | null; session_id: string }> = [];
   let feedback: Array<{ text: string; scope?: string | null; session_id: string }> = [];
   let recent: Array<{ kind: string; body: string }> = [];
   try {
-    goals = applyScopePriority(store.getActiveGoalsMerged(sessionId, projectKey));
-    decisions = applyScopePriority(store.getActiveDecisionsMerged(sessionId, projectKey));
-    feedback = applyScopePriority(store.getFeedbackMerged(sessionId, projectKey, 5));
+    if (isolated) {
+      // 隔离模式：只显示本会话内容（不继承项目/全局），状态卡不随其他代理变动
+      goals = store.getActiveGoals(sessionId);
+      decisions = store.getActiveDecisions(sessionId);
+      feedback = store.getFeedback(sessionId, 5);
+    } else {
+      goals = applyScopePriority(store.getActiveGoalsMerged(sessionId, projectKey));
+      decisions = applyScopePriority(store.getActiveDecisionsMerged(sessionId, projectKey));
+      feedback = applyScopePriority(store.getFeedbackMerged(sessionId, projectKey, 5));
+    }
     recent = store.getRecentEvents(sessionId, recentCount);
   } catch {
     // 状态卡是主路径增强，任何失败都降级为最小卡，绝不阻塞
@@ -34,7 +43,7 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
     row.scope === "global" ? "（全局）" : row.session_id !== sessionId ? "（来自其他会话）" : "";
 
   const lines: string[] = [];
-  lines.push("[Thread 会话记忆状态卡]");
+  lines.push(isolated ? "[Thread 会话记忆状态卡]（本会话已隔离，内容仅自己可见）" : "[Thread 会话记忆状态卡]");
   if (goals.length > 0) {
     lines.push("目标:");
     goals

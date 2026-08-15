@@ -29,7 +29,7 @@ let card = "[Thread 会话记忆状态卡]";
 try {
   const store = new ThreadStore({ eventsPath: paths.eventsDbPath, structuredPath: paths.structuredDbPath });
   try {
-    card = buildStatusCard(store, { sessionId, projectKey, budgetLines: 100 });
+    card = buildStatusCard(store, { sessionId, projectKey, budgetLines: 100, isolated: store.getSessionIsolation(sessionId) });
   } finally {
     store.close();
   }

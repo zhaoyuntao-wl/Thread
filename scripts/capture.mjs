@@ -4,6 +4,45 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 
+// 会话临时隔离指令识别（显式命令 + 自然语言，双通道）
+const ISOLATE_RE = /^(?:\/isolate|[/／]isolate)\b|(?:进入|开启|启用|先)?(?:临时)?(?:隔离|静默|免打扰|别打扰|屏蔽)/;
+const UNISOLATE_RE = /^(?:\/unisolate|[/／]unisolate)\b|(?:解除|退出|关闭)(?:隔离|静默)|恢复共享/;
+const PUBLISH_CMD_RE = /^\/thread-publish\s+(goal|decision|feedback)\s+(\d+)\b/;
+const PUBLISH_NL_RE = /把(?:刚才|刚才的)?(?:这个)?(?:决策|决定|目标|偏好)(?:共享|公开|同步)(?:出去|给项目)?/;
+
+function tableForKind(kind) {
+  return kind === "goal" ? "goals" : kind === "decision" ? "decisions" : "feedback";
+}
+
+function parseIsolationCommand(body) {
+  const m = body.match(PUBLISH_CMD_RE);
+  if (m) {
+    return { action: "publish", kind: m[1], id: Number(m[2]) };
+  }
+  if (PUBLISH_NL_RE.test(body)) {
+    return { action: "publish" };
+  }
+  if (ISOLATE_RE.test(body)) {
+    return { action: "isolate" };
+  }
+  if (UNISOLATE_RE.test(body)) {
+    return { action: "unisolate" };
+  }
+  return undefined;
+}
+
+function publishLatestIsolated(store, sessionId) {
+  for (const table of ["decisions", "feedback", "goals"]) {
+    const row = store.structuredDb
+      .prepare(`SELECT id FROM ${table} WHERE session_id = ? AND isolation = 1 ORDER BY id DESC LIMIT 1`)
+      .get(sessionId);
+    if (row) {
+      store.unisolateRow(sessionId, table, row.id);
+      return;
+    }
+  }
+}
+
 let raw;
 try {
   raw = readFileSync(0, "utf8");
@@ -68,13 +107,29 @@ try {
   if (event.kind === "assistant_message" && typeof existingUuid === "string" && store.hasAssistantTurn(event.session_id, existingUuid)) {
     process.exit(0);
   }
+  // 会话临时隔离：指令识别（显式命令 + 自然语言）→ 状态切换/沉淀；写路径带隔离标记（tool 类 core 强制共享）
+  if (event.kind === "user_message") {
+    const cmd = parseIsolationCommand(event.body);
+    if (cmd?.action === "isolate") {
+      store.setSessionIsolation(event.session_id, true);
+    } else if (cmd?.action === "unisolate") {
+      store.setSessionIsolation(event.session_id, false);
+    } else if (cmd?.action === "publish") {
+      if (cmd.kind && cmd.id) {
+        store.unisolateRow(event.session_id, tableForKind(cmd.kind), cmd.id);
+      } else {
+        publishLatestIsolated(store, event.session_id);
+      }
+    }
+  }
+  const isolated = store.getSessionIsolation(event.session_id);
   // 多写者重试（spike ⑤ 实证）：SQLITE_BUSY 立即重试，100ms 间隔、上限 20 次
-  const appended = appendWithRetry(store, event, { projectKey, origin });
+  const appended = appendWithRetry(store, event, { projectKey, origin, isolation: isolated });
   try {
     if (event.kind === "user_message") {
-      applyAnalysis(store, event.session_id, { user_msg: event.body }, { sourceEvent: appended.id, ts: event.ts, projectKey, origin });
+      applyAnalysis(store, event.session_id, { user_msg: event.body }, { sourceEvent: appended.id, ts: event.ts, projectKey, origin, isolation: isolated });
     } else if (event.kind === "assistant_message") {
-      applyAnalysis(store, event.session_id, { assistant_msg: event.body }, { sourceEvent: appended.id, ts: event.ts, projectKey, origin });
+      applyAnalysis(store, event.session_id, { assistant_msg: event.body }, { sourceEvent: appended.id, ts: event.ts, projectKey, origin, isolation: isolated });
     }
   } catch (err) {
     console.error(`thread capture: analysis failed: ${err instanceof Error ? err.message : String(err)}`);

@@ -161,7 +161,7 @@ export function applyAnalysis(
   const analysis = analyzeTurn(input);
   const ts = opts.ts ?? new Date().toISOString();
   const sourceEvent = opts.sourceEvent;
-  const structuredOpts = { sourceEvent, ts, scope: opts.scope, projectKey: opts.projectKey, origin: opts.origin };
+  const structuredOpts = { sourceEvent, ts, scope: opts.scope, projectKey: opts.projectKey, origin: opts.origin, isolation: opts.isolation };
 
   return store.transact(() => {
     const applied: AppliedTurn = { goals: [], decisions: [], feedback: [] };

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { runIsolationScenario } from "./isolation-scenario.js";
 import { runMigrationLosslessScenario } from "./migration-scenario.js";
 import { runRebuildRecoveryScenario } from "./rebuild-scenario.js";
 import { runScopeFilterScenario } from "./scope-scenario.js";
@@ -18,6 +19,12 @@ describe("B⑦ 专项场景（eval-cli 同源断言）", () => {
 
   it("rebuild-recovery：删结构化库后事件流水重放恢复（幂等）", () => {
     const report = runRebuildRecoveryScenario();
+    expect(report.checks.filter((c) => !c.passed)).toEqual([]);
+    expect(report.passed).toBe(true);
+  });
+
+  it("isolation：对话上下文仅自己可见、项目事实共享、解除/沉淀可恢复", () => {
+    const report = runIsolationScenario();
     expect(report.checks.filter((c) => !c.passed)).toEqual([]);
     expect(report.passed).toBe(true);
   });

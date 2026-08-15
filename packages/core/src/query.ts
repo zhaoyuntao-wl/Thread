@@ -103,8 +103,11 @@ export function queryEvents(store: ThreadStore, opts: StructuredQueryOptions): S
   const where: string[] = [];
   const params: unknown[] = [];
   if (opts.sessionId) {
-    where.push("session_id = ?");
+    // 当前会话可见自己的全部内容（含隔离），其他会话只见未隔离行
+    where.push("(session_id = ? OR isolation = 0)");
     params.push(opts.sessionId);
+  } else {
+    where.push("isolation = 0");
   }
   if (opts.timeRange?.since) {
     where.push("ts >= ?");

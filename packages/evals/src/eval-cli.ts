@@ -7,6 +7,7 @@ import { SCENARIOS } from "./scenarios.js";
 import { runScopeFilterScenario } from "./scope-scenario.js";
 import { runMigrationLosslessScenario } from "./migration-scenario.js";
 import { runRebuildRecoveryScenario } from "./rebuild-scenario.js";
+import { runIsolationScenario } from "./isolation-scenario.js";
 
 function main(): void {
   const dir = mkdtempSync(join(tmpdir(), "thread-eval-cli-"));
@@ -18,7 +19,7 @@ function main(): void {
       projectKey: "eval-proj",
     });
     const { reports } = runAll(store, SCENARIOS);
-    const specials = [runScopeFilterScenario(), runMigrationLosslessScenario(), runRebuildRecoveryScenario()];
+    const specials = [runScopeFilterScenario(), runMigrationLosslessScenario(), runRebuildRecoveryScenario(), runIsolationScenario()];
     const all = [...reports, ...specials];
     let passed = 0;
     for (const r of all) {

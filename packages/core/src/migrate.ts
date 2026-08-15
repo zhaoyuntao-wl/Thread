@@ -221,16 +221,24 @@ function allLineage(old: Database.Database): LineageRow[] {
   return old.prepare(`SELECT id, session_id, src_type, src_id, dst_type, dst_id, ref, edge_type, confidence, ts FROM lineage_edges ORDER BY id`).all() as LineageRow[];
 }
 
-const EVENT_COLS = ["id", "session_id", "kind", "ts", "seq", "body", "meta", "truncated", "project_key", "scope", "origin", "spilled"] as const;
+const EVENT_COLS = ["id", "session_id", "kind", "ts", "seq", "body", "meta", "truncated", "project_key", "scope", "origin", "spilled", "isolation"] as const;
+
+function eventSourceCols(old: Database.Database): string[] {
+  // 旧库可能无 isolation 列（v2 及以前）——动态裁剪，缺失列迁移后取 DEFAULT 0（共享）
+  const have = columns(old, "events");
+  return EVENT_COLS.filter((c) => have.includes(c));
+}
 
 function copyEvents(
   old: Database.Database,
   target: Database.Database,
   projectKey: string,
 ): { copied: number; backfilled: number } {
-  const rows = old.prepare(`SELECT ${EVENT_COLS.join(", ")} FROM events ORDER BY id`).all() as Array<Record<string, unknown>>;
+  const srcCols = eventSourceCols(old);
+  const dstCols = srcCols.includes("isolation") ? srcCols : [...srcCols, "isolation"];
+  const rows = old.prepare(`SELECT ${srcCols.join(", ")} FROM events ORDER BY id`).all() as Array<Record<string, unknown>>;
   const insert = target.prepare(
-    `INSERT INTO events (${EVENT_COLS.join(", ")}) VALUES (${EVENT_COLS.map(() => "?").join(", ")})`,
+    `INSERT INTO events (${dstCols.join(", ")}) VALUES (${dstCols.map(() => "?").join(", ")})`,
   );
   let backfilled = 0;
   const tx = target.transaction(() => {
@@ -239,7 +247,7 @@ function copyEvents(
         row.project_key = projectKey;
         backfilled++;
       }
-      insert.run(...EVENT_COLS.map((c) => row[c]));
+      insert.run(...dstCols.map((c) => (c === "isolation" && row[c] == null ? 0 : row[c])));
     }
   });
   tx();
@@ -252,18 +260,20 @@ function copyEventsRange(
   projectKey: string,
   afterId: number,
 ): number {
+  const srcCols = eventSourceCols(old);
+  const dstCols = srcCols.includes("isolation") ? srcCols : [...srcCols, "isolation"];
   const rows = old
-    .prepare(`SELECT ${EVENT_COLS.join(", ")} FROM events WHERE id > ? ORDER BY id`)
+    .prepare(`SELECT ${srcCols.join(", ")} FROM events WHERE id > ? ORDER BY id`)
     .all(afterId) as Array<Record<string, unknown>>;
   const insert = target.prepare(
-    `INSERT INTO events (${EVENT_COLS.join(", ")}) VALUES (${EVENT_COLS.map(() => "?").join(", ")})`,
+    `INSERT INTO events (${dstCols.join(", ")}) VALUES (${dstCols.map(() => "?").join(", ")})`,
   );
   const tx = target.transaction(() => {
     for (const row of rows) {
       if (row.project_key == null) {
         row.project_key = projectKey;
       }
-      insert.run(...EVENT_COLS.map((c) => row[c]));
+      insert.run(...dstCols.map((c) => (c === "isolation" && row[c] == null ? 0 : row[c])));
     }
   });
   tx();

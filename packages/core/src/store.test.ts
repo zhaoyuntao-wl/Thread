@@ -84,9 +84,24 @@ describe("ThreadStore", () => {
     expect(after).toBe(before);
   });
 
-  it("filters search by session", () => {
-    const hits = store.search("hello", { sessionId: "s2" });
-    expect(hits).toHaveLength(0);
+  it("filters search by session and hides isolated content from others", () => {
+    // 未隔离内容跨会话可见（跨会话继承检索语义）
+    const visible = store.search("hello", { sessionId: "s2" });
+    expect(visible.length).toBeGreaterThan(0);
+    // 隔离内容对其他会话不可见（全链路过滤）
+    store.append(
+      {
+        session_id: "s-iso",
+        kind: "user_message",
+        ts: "2026-08-13T00:00:06.000Z",
+        body: "秘密计划代号红隼",
+      },
+      { isolation: true },
+    );
+    const hidden = store.search("红隼", { sessionId: "s2" });
+    expect(hidden).toHaveLength(0);
+    const self = store.search("红隼", { sessionId: "s-iso" });
+    expect(self.length).toBeGreaterThan(0);
   });
 
   it("starts a new episode on user message", () => {
