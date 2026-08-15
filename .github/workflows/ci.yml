@@ -22,3 +22,25 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm eval
+
+  # dsh-thread compat 矩阵（发布门槛③：钉版本 + 随 dsh release train 持续适配）。
+  # dsh preview 出新版本时在 matrix 追加，验证插件 API 编译期兼容。
+  compat-dsh:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dsh-version: [0.1.0-rc.6]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter dsh-thread build
+      - run: pnpm --filter dsh-thread typecheck
+        env:
+          DSH_VERSION: ${{ matrix.dsh-version }}
