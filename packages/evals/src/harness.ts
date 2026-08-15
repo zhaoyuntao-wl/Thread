@@ -1,4 +1,4 @@
-import { applyTurn, queryMemory, ThreadStore } from "@thread/core";
+import { applyTurn, buildStatusCard, queryMemory, ThreadStore } from "@thread/core";
 import type { Scenario, ScenarioExpectation } from "./scenarios.js";
 
 export interface CheckResult {
@@ -47,6 +47,15 @@ export function runScenario(store: ThreadStore, scenario: Scenario): ScenarioRep
         });
       }
       void event;
+    }
+    if (turn.compact) {
+      store.append({
+        session_id: sessionId,
+        kind: "compact_checkpoint",
+        ts: nextTs(),
+        body: turn.compact,
+        meta: { trigger: "eval" },
+      });
     }
   }
 
@@ -112,6 +121,26 @@ function checkExpectation(
         expectation: `lineage for "${exp.file}" >= ${exp.minEdges}`,
         passed: edges.length >= exp.minEdges,
         detail: `共 ${edges.length} 条边`,
+      };
+    }
+    case "compact": {
+      const row = store.eventsDb
+        .prepare(
+          `SELECT body FROM events WHERE session_id = ? AND kind = 'compact_checkpoint' ORDER BY id DESC LIMIT 1`,
+        )
+        .get(sessionId) as { body: string } | undefined;
+      return {
+        expectation: `compact checkpoint contains "${exp.contains}"`,
+        passed: Boolean(row?.body.includes(exp.contains)),
+        detail: row ? `checkpoint 正文: ${row.body.slice(0, 80)}` : "无 compact_checkpoint 事件",
+      };
+    }
+    case "status-card": {
+      const card = buildStatusCard(store, { sessionId, projectKey: store.projectKey, budgetLines: 100 });
+      return {
+        expectation: `status-card contains "${exp.contains}"`,
+        passed: card.includes(exp.contains),
+        detail: card ? `状态卡命中: ${card.includes(exp.contains) ? "是" : "否"}` : "状态卡为空",
       };
     }
   }

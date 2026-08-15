@@ -11,13 +11,16 @@ export interface ScenarioTurn {
   user?: string;
   assistant?: string;
   tool?: ScenarioTool;
+  compact?: string;
 }
 
 export type ScenarioExpectation =
   | { kind: "goal"; contains: string }
   | { kind: "decision"; contains: string; status: DecisionStatus }
   | { kind: "recall"; query: string; mustContain: string }
-  | { kind: "lineage"; file: string; minEdges: number };
+  | { kind: "lineage"; file: string; minEdges: number }
+  | { kind: "compact"; contains: string }
+  | { kind: "status-card"; contains: string };
 
 export interface Scenario {
   id: string;
@@ -95,6 +98,48 @@ export const SCENARIOS: Scenario[] = [
     expectations: [
       { kind: "recall", query: "auth 重构", mustContain: "重构" },
       { kind: "lineage", file: "src/auth.ts", minEdges: 1 },
+    ],
+  },
+  {
+    id: "compact-fidelity",
+    title: "跨压缩保真：压缩边界后决策/目标/细节可回拉",
+    turns: [
+      { user: "帮我实现用户登录功能" },
+      { assistant: "我记下了使用 JWT 做认证" },
+      { user: "好的" },
+      { tool: { name: "Write", file_path: "src/auth.ts", input: { file_path: "src/auth.ts" }, output: "JWT 登录已实现" } },
+      { user: "再帮我实现注册功能，密码统一用 bcrypt" },
+      { assistant: "我记下了密码用 bcrypt 加密" },
+      { user: "好的" },
+      { compact: "摘要：已实现登录与注册。决策：JWT 认证 active、bcrypt 加密 active。目标：登录、注册。工具：src/auth.ts。" },
+      { user: "改用 Session 吧" },
+      { user: "好的" },
+    ],
+    expectations: [
+      { kind: "decision", contains: "JWT", status: "active" },
+      { kind: "decision", contains: "Session", status: "active" },
+      { kind: "decision", contains: "bcrypt", status: "superseded" },
+      { kind: "goal", contains: "注册" },
+      { kind: "compact", contains: "bcrypt" },
+      { kind: "recall", query: "bcrypt 加密", mustContain: "bcrypt" },
+    ],
+  },
+  {
+    id: "injection-follow",
+    title: "注入遵循前置：状态卡覆盖 active 决策/目标/偏好（模型每轮可见）",
+    turns: [
+      { user: "帮我实现 API 网关" },
+      { assistant: "我记下了网关用 Kong 实现" },
+      { user: "好的" },
+      { user: "以后测试都用 vitest 写" },
+      { user: "嗯" },
+    ],
+    expectations: [
+      { kind: "decision", contains: "Kong", status: "active" },
+      { kind: "goal", contains: "网关" },
+      { kind: "status-card", contains: "Kong" },
+      { kind: "status-card", contains: "vitest" },
+      { kind: "recall", query: "Kong 网关", mustContain: "Kong" },
     ],
   },
 ];

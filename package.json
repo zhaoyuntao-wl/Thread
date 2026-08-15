@@ -12,6 +12,7 @@
     "typecheck": "pnpm -r build && pnpm -r typecheck",
     "lint": "eslint .",
     "test": "vitest run",
+    "eval": "pnpm --filter @thread/core build && pnpm --filter @thread/evals build && node packages/evals/dist/eval-cli.js",
     "changeset": "changeset"
   },
   "devDependencies": {
