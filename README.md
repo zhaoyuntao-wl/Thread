@@ -1,5 +1,7 @@
 # Thread
 
+[![CI](https://github.com/zhaoyuntao-wl/Thread/actions/workflows/ci.yml/badge.svg)](https://github.com/zhaoyuntao-wl/Thread/actions/workflows/ci.yml)
+
 *Session memory with lineage for coding agents.*
 
 Thread is a base-agnostic memory layer for coding agents. Instead of lossy context

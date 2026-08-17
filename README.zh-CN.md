@@ -1,5 +1,7 @@
 # Thread
 
+[![CI](https://github.com/zhaoyuntao-wl/Thread/actions/workflows/ci.yml/badge.svg)](https://github.com/zhaoyuntao-wl/Thread/actions/workflows/ci.yml)
+
 *Session memory with lineage for coding agents.*（面向编码 Agent 的会话记忆层）
 
 Thread 是底座无关的编码 Agent 会话记忆层。与有损的上下文压缩不同，它把会话的完整事件流无损落库、按需检索——长任务中的目标、决策、反馈与血缘关系全程保真。
