@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { queryMemory, queryEvents } from "./query.js";
+import { queryMemory, queryEvents, queryStructured } from "./query.js";
 import { ThreadStore } from "./store.js";
 
 let dir: string;
@@ -143,6 +143,30 @@ describe("queryMemory", () => {
     });
     expect(result.status).toBe("not-found");
     expect(result.results).toHaveLength(0);
+  });
+
+  it("queryStructured returns table rows with ids (② 后置入口)", () => {
+    store.addGoal("q1", "登录用 JWT");
+    const fb = store.addFeedback("q1", "不要用 pwsh", "correction");
+    const goals = queryStructured(store, { sessionId: "q1", table: "goals" });
+    expect(goals.status).toBe("found");
+    expect(goals.results.some((r) => r.body === "登录用 JWT")).toBe(true);
+    const fbRes = queryStructured(store, { sessionId: "q1", table: "feedback" });
+    expect(fbRes.results[0].segment_id).toBe(fb.id);
+    expect(fbRes.results[0].body).toBe("不要用 pwsh");
+  });
+
+  it("queryStructured applies isolation filtering (隔离语义与事件一致)", () => {
+    store.addFeedback("q-iso", "秘密偏好", "preference", { isolation: true });
+    const other = queryStructured(store, { sessionId: "q1", table: "feedback" });
+    expect(other.results.some((r) => r.body === "秘密偏好")).toBe(false);
+    const self = queryStructured(store, { sessionId: "q-iso", table: "feedback" });
+    expect(self.results.some((r) => r.body === "秘密偏好")).toBe(true);
+  });
+
+  it("queryStructured supports count", () => {
+    const res = queryStructured(store, { sessionId: "q1", table: "goals", count: true });
+    expect(res.count).toBeGreaterThanOrEqual(1);
   });
 
   it("queryEvents exposes isolation flag on event rows (⑨)", () => {

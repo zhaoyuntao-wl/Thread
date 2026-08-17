@@ -24,9 +24,9 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
   const feedbackLimit = firstTurn ? 8 : 5;
   const isolated = opts.isolated ?? false;
 
-  let goals: Array<{ text: string; scope?: string | null; session_id: string }> = [];
-  let decisions: Array<{ text: string; scope?: string | null; session_id: string }> = [];
-  let feedback: Array<{ text: string; scope?: string | null; session_id: string }> = [];
+  let goals: Array<{ id: number; text: string; scope?: string | null; session_id: string }> = [];
+  let decisions: Array<{ id: number; text: string; scope?: string | null; session_id: string }> = [];
+  let feedback: Array<{ id: number; text: string; scope?: string | null; session_id: string }> = [];
   let recent: Array<{ kind: string; body: string }> = [];
   try {
     if (isolated) {
@@ -55,16 +55,16 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
       .slice()
       .reverse()
       .slice(0, listLimit)
-      .forEach((g, i) => lines.push(`  ${i + 1}. ${g.text.slice(0, 120)}${shareMark(g)}`));
+      .forEach((g, i) => lines.push(`  ${i + 1}. ${g.text.slice(0, 120)}${shareMark(g)} #${g.id}`));
   }
   if (decisions.length > 0) {
     lines.push("决策（生效中）:");
-    decisions.slice(0, listLimit).forEach((d, i) => lines.push(`  ${i + 1}. ${d.text.slice(0, 120)}${shareMark(d)}`));
+    decisions.slice(0, listLimit).forEach((d, i) => lines.push(`  ${i + 1}. ${d.text.slice(0, 120)}${shareMark(d)} #${d.id}`));
   }
   if (feedback.length > 0) {
     lines.push("偏好:");
     feedback.forEach((f) => {
-      lines.push(`  - ${f.text.slice(0, 120)}${shareMark(f)}`);
+      lines.push(`  - ${f.text.slice(0, 120)}${shareMark(f)} #${f.id}`);
     });
   }
   if (recent.length > 0) {

@@ -163,6 +163,62 @@ export function queryEvents(store: ThreadStore, opts: StructuredQueryOptions): S
   };
 }
 
+// 结构化表查询（B⑥-② 恢复通道配套 ②）：目标/决策/反馈行的按需检索——忘掉行 id 时的后置入口。
+// 隔离语义与事件同：本会话可见自己的全部行 + 其他会话未隔离行。
+export type StructuredTableName = "goals" | "decisions" | "feedback";
+
+export interface StructuredTableQueryOptions {
+  sessionId?: string;
+  table: StructuredTableName;
+  order?: "asc" | "desc";
+  limit?: number;
+  count?: boolean;
+}
+
+const TABLE_COLUMNS: Record<StructuredTableName, string> = {
+  goals: "id, session_id, text, status, scope, isolation, created_at",
+  decisions: "id, session_id, text, status, scope, isolation, created_at",
+  feedback: "id, session_id, text, kind, scope, isolation, created_at",
+};
+
+export function queryStructured(store: ThreadStore, opts: StructuredTableQueryOptions): StructuredQueryResult {
+  const where = opts.sessionId ? "WHERE (session_id = ? OR isolation = 0)" : "WHERE isolation = 0";
+  const params: unknown[] = opts.sessionId ? [opts.sessionId] : [];
+  if (opts.count) {
+    const row = store.structuredDb.prepare(`SELECT COUNT(*) AS c FROM ${opts.table} ${where}`).get(...params) as { c: number };
+    return { status: row.c > 0 ? "found" : "not-found", results: [], count: row.c };
+  }
+  const order = opts.order === "asc" ? "ASC" : "DESC";
+  const limit = Math.min(opts.limit ?? 20, 50);
+  const rows = store.structuredDb
+    .prepare(`SELECT ${TABLE_COLUMNS[opts.table]} FROM ${opts.table} ${where} ORDER BY id ${order} LIMIT ?`)
+    .all(...params, limit) as Array<{
+    id: number;
+    session_id: string;
+    text: string;
+    status?: string | null;
+    kind?: string | null;
+    scope?: string | null;
+    isolation: number;
+    created_at: string;
+  }>;
+  if (rows.length === 0) {
+    return { status: "not-found", results: [] };
+  }
+  return {
+    status: "found",
+    results: rows.map((r) => ({
+      segment_id: r.id,
+      kind: r.kind ?? r.status ?? opts.table,
+      ts: r.created_at,
+      seq: r.id,
+      body: r.text,
+      score: 0,
+      isolation: r.isolation,
+    })),
+  };
+}
+
 function findEpisodeSummary(
   store: ThreadStore,
   sessionId: string | undefined,

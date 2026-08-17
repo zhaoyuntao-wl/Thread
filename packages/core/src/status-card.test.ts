@@ -50,4 +50,11 @@ describe("buildStatusCard（外部借鉴 ①③：首轮加权 + 收束语）", 
     const card = buildStatusCard(store, { sessionId: "s1", projectKey: "card-proj", isolated: true, firstTurn: true });
     expect(card).toContain("本会话已隔离");
   });
+
+  it("行尾带行 id（① 治理可见性：目标/决策/偏好均可定位）", () => {
+    const card = buildStatusCard(store, { sessionId: "s1", projectKey: "card-proj" });
+    expect(card).toMatch(/决策 1 #\d+/);
+    expect(card).toMatch(/目标 \d+ #\d+/);
+    expect(card).toMatch(/偏好 1 #\d+/);
+  });
 });
