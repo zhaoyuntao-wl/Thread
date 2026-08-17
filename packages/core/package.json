@@ -1,6 +1,6 @@
 {
   "name": "@thread-memory/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Thread core: event pipeline, structured tables, lineage graph, retrieval",
   "license": "MIT",
   "type": "module",
@@ -15,6 +15,9 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
