@@ -170,6 +170,22 @@
 
 **对包络影响**：定位升级为"**会话记忆的架构优胜者**"——四项核心 = 技术优势引擎，不是避风港。
 
+### 外部借鉴（dsh-routing-suite，2026-08-15 评审）
+
+[套件](https://github.com/yjh051108/dsh-routing-suite)（injector 免重启手术台 + [dsh-router-standard](https://github.com/yjh051108/dsh-router-standard) 思维模式路由 + mode-boost）以 [paper](https://github.com/yjh051108/dsh-router-standard/blob/main/docs/paper.md) 实证了 V4 Pro 的"双吸引子行为策略"：人格轴存在相变（spec/react 两稳定带 + 高熵过渡带）、**会话首请求即锚定轨迹（路径承诺）**、模型无法自路由。定位差异：它是**行为条件化层**（首轮选人格 + 工具过滤），Thread 是**记忆保真层**；哲学同源（都不信任模型自管理，其实证结论 = 不变量 #11 的外部佐证）。借鉴清单（直接落地 ①②③④，方法论文档化 ⑤⑥⑦，明确不学 ⑧⑨）：
+
+| # | 借鉴点 | 落点 | 状态 |
+|---|---|---|---|
+| ① | 首轮杠杆：首条消息即锚定轨迹 → 状态卡首轮加权（全量档），后续维持轻量 O(1) | buildStatusCard `firstTurn` 档；dsh pre-step turn===1 传递 | ✅ 已实施 |
+| ② | few-shot 示例强化工具契约段（weak 窗口区分度 +3.3/+2.3 实证） | 两 server.ts 的 TOOL_DESCRIPTION 加 1 条调用示例 | ✅ 已实施 |
+| ③ | 绑定式收束语（纯"再想想"是陷阱，预算耗尽 0% 收敛；带行动收束 100%） | 状态卡尾行 → "…查询并基于结果给出结论" | ✅ 已实施 |
+| ④ | 注入安全原则（router amnesia 教训：整段替换丢 plan 边界 → 重复探索） | 不变量 #11：注入=追加 user message，禁止改写/替换底座 section | ✅ 已实施 |
+| ⑤ | 实证方法论：固定微任务 + 定量分类器 + n 次区分度，把条件化效果量化 | B⑤ 度量协议：注入遵循率从断言升级为带实验的区分度数字 | 📝 记入 B⑤ 设计 |
+| ⑥ | 前缀缓存友好性实证（切 persona 击穿缓存；尾部注入无效） | business-design §2.3"稳定段在前"获外部背书；cache-hit 进 B⑤ 度量 | 📝 记入 B⑤ 设计 |
+| ⑦ | 诚实量化哲学：连续旋钮是幻觉，行为层有相变，量化到稳定带 | 提醒治理显式化稳定带（每轮/低频/仅冲突时），不连续微调 | 📝 记入提醒治理 |
+| ⑧ | ~~模型/关键词自分类路由~~ 不学：关键词分类是权宜且绑定具体模型版本，与底座无关 + 确定性内核冲突 | — | ❌ 反向 |
+| ⑨ | ~~运行时手术台式免重启注入~~ 不学：接缝脆弱源（#13 实证），保持锚定核心不变量 + 重启生效 | — | ❌ 反向 |
+
 **待验证点（dsh spike，2026-08-14 评审定案：②⑤ 提前为 B② 开工前置，其余与批 B 并行；③ 有条件推进）**：① **✅（2026-08-14 实测完成，B④ 后补验）**——MCP overlay 零代码挂载：`--patch` 覆盖层 `insert` cordis 条目（`@deepseek-ai/dsh-mcp-client`，stdio 指向 Thread MCP server——现为 dsh-thread 内嵌 server，`bin=dsh-thread`）即挂载成功，headless 模型实测调用 `mcp__thread__query_session_memory` 工具（返回 not-found 为检索词问题，非挂载问题）；**零代码可行，MCP 通用层先于旗舰插件（2026-08-15 起并入 dsh-thread 单包）**；② **前置 ✅（2026-08-14 实测完成）**——原生插件 spike 三接缝全部实证：`session/event` 订阅（事件流实时到达）；`agent.inject()`（UserMessage 级排队：`agent/inbox/spliced` → `request/header` → **`user/message` surfaceOp:append 入 session log**，模型实测遵循注入标记）；`ctx.tools` 注册（`defineTool` 注册后模型实测调用 `thread_query`）；**inject 进压缩摘要 = 成立**——inject 的 user/message append 进流水，compaction summarize 输入 = 重放对话前缀（system+tools+leading messages），必然包含注入内容（Qoder 死路，dsh 成立）；另发现新接缝 **`system-prompt/assemble` waterfall**（系统提示词组装注册，比 inject 更系统的注入通道，dsh-thread 可双通道）；③ **✅（2026-08-14 实测完成，达中位）**——dsh 同任务编码实测：独立 TS 任务（LRUCache+TTL+vitest，strict）自主完成全流程（install→实现→测试→typecheck+test），实现质量高（泛型/参数校验/懒过期/注释），测试 20/21 首过（1 个断言笔误可快速定位修复，修正后 21/21）；**判据达成 → 狗粮切换可执行**；④ 钉版本策略——**已记风险（2026-08-14 切换落地）**：dsh preview 破坏性变更下锚定核心不变量 = session 日志 / 事件 / inject / pre-step（有运行时 "Model-visible means logged" 保护，最稳）；`dsh-thread` peer 依赖钉 `0.1.0-rc.6`；挂载 = `dsh plugin add dsh-thread`（本地开发可用手工复制 dist + package.json + cordis.patch.yml 到 profile node_modules，pnpm 跨盘 `link:`/`file:` 绝对路径解析失败，Windows 已知坑）→ dsh 升级或插件 API 变更时需重验；⑤ **前置 ✅（2026-08-14 实测完成）**——**多写者并发写验证**：临时库压测（8 写者 × 500 = 4000/4000 全成功，70 次 busy 重试，零丢失、`integrity_check=ok`）。**关键发现：`busy_timeout` 未让并发写者排队**——better-sqlite3 多进程并发写 WAL 时立即抛 `SQLITE_BUSY`（"database is locked"），**重试队列（catch `e.code==='SQLITE_BUSY'` → sleep → 重试）是成功保证，必需而非可选项**；Thread 设计已含重试队列，实证必要性成立。实现约束：`ThreadStore.append` 无内置重试，capture 侧必须捕获 SQLITE_BUSY 并重试（100ms 间隔、上限 ≥20 次，实测 8×500 下单写者最多 14 次）。**理由**：②⑤ 直接影响 B② schema（origin/spill/scope）与 B③ 继承验收（inject 路径是否同效），翻车则存储模型返工；spike 为低成本只读验证，先钉死接缝事实再动 B②，返工面最小（2026-08-14 grill 评审定案）。原 Pi/OMP spike 降级为可选。
 
 ---

@@ -10,13 +10,18 @@ export interface BuildStatusCardOptions {
   budgetLines?: number;
   recentCount?: number;
   isolated?: boolean;
+  // 首轮档（外部借鉴①：会话首请求即锚定轨迹，首轮给全量锚点，后续维持轻量 O(1)）
+  firstTurn?: boolean;
 }
 
 export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions): string {
   const sessionId = opts.sessionId;
   const projectKey = opts.projectKey;
   const budgetLines = opts.budgetLines ?? 100;
-  const recentCount = opts.recentCount ?? 3;
+  const firstTurn = opts.firstTurn ?? false;
+  const recentCount = opts.recentCount ?? (firstTurn ? 5 : 3);
+  const listLimit = firstTurn ? 8 : 5;
+  const feedbackLimit = firstTurn ? 8 : 5;
   const isolated = opts.isolated ?? false;
 
   let goals: Array<{ text: string; scope?: string | null; session_id: string }> = [];
@@ -28,11 +33,11 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
       // 隔离模式：只显示本会话内容（不继承项目/全局），状态卡不随其他代理变动
       goals = store.getActiveGoals(sessionId);
       decisions = store.getActiveDecisions(sessionId);
-      feedback = store.getFeedback(sessionId, 5);
+      feedback = store.getFeedback(sessionId, feedbackLimit);
     } else {
       goals = applyScopePriority(store.getActiveGoalsMerged(sessionId, projectKey));
       decisions = applyScopePriority(store.getActiveDecisionsMerged(sessionId, projectKey));
-      feedback = applyScopePriority(store.getFeedbackMerged(sessionId, projectKey, 5));
+      feedback = applyScopePriority(store.getFeedbackMerged(sessionId, projectKey, feedbackLimit));
     }
     recent = store.getRecentEvents(sessionId, recentCount);
   } catch {
@@ -49,12 +54,12 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
     goals
       .slice()
       .reverse()
-      .slice(0, 5)
+      .slice(0, listLimit)
       .forEach((g, i) => lines.push(`  ${i + 1}. ${g.text.slice(0, 120)}${shareMark(g)}`));
   }
   if (decisions.length > 0) {
     lines.push("决策（生效中）:");
-    decisions.slice(0, 5).forEach((d, i) => lines.push(`  ${i + 1}. ${d.text.slice(0, 120)}${shareMark(d)}`));
+    decisions.slice(0, listLimit).forEach((d, i) => lines.push(`  ${i + 1}. ${d.text.slice(0, 120)}${shareMark(d)}`));
   }
   if (feedback.length > 0) {
     lines.push("偏好:");
@@ -69,7 +74,8 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
       .reverse()
       .forEach((e) => lines.push(`  - ${e.kind}: ${e.body.slice(0, 60)}`));
   }
-  lines.push("需要更早的历史细节时，调用 query_session_memory 工具查询。");
+  // 收束语（外部借鉴③）：绑定式行动收束，防止纯"再想想"式开放引导
+  lines.push("需要更早的历史细节时，调用 query_session_memory 工具查询，并基于结果给出结论。");
   lines.push("收到 隔离//unisolate//thread-publish 单命令时，只回一句状态确认，不展开思考。");
 
   return lines.slice(0, budgetLines).join("\n");
