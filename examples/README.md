@@ -8,13 +8,9 @@ Session memory in ~30 lines: open the store, append events, run deterministic
 light confirmation, inject the status card, retrieve on demand.
 
 ```sh
-pnpm --filter @thread/core build
+pnpm install
 npx tsx examples/quick-start.ts
 ```
 
-Or with Node directly after compiling:
-
-```sh
-pnpm --filter @thread/core build
-node examples/quick-start.mjs
-```
+The example uses a temp directory (`THREAD_ROOT` override); nothing is written
+outside it.

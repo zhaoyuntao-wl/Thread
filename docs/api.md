@@ -44,7 +44,7 @@ class ThreadStore {
 | `getRecentSessionId()` | Session id of the most recent event. |
 | `expand(eventId)` | Recover the full body of a spilled event from the spills table; returns body + missing marker when unrecoverable. |
 | `hasAssistantTurn(sessionId, uuid)` | True if an assistant turn with this uuid was already stored. |
-| `setSessionIsolation(sessionId, isolated)` / `getSessionIsolation(sessionId)` | Per-session isolation switch (B⑧). Isolated rows (messages/decisions/feedback) are visible only to their own session across merged views, search, queryEvents, expand, and lineage; tool events always stay shared. |
+| `setSessionIsolation(sessionId, isolated)` / `getSessionIsolation(sessionId)` | Per-session isolation switch. Isolated rows (messages/decisions/feedback) are visible only to their own session across merged views, search, queryEvents, expand, and lineage; tool events always stay shared. |
 | `unisolateRow(sessionId, table, id)` | Publish one isolated structured row (goals/decisions/feedback) back to shared visibility. |
 
 ### Structured tables
@@ -86,13 +86,13 @@ class ThreadStore {
 | `SpillPolicy` / `INDEXABLE_KINDS` | governor | Body spill policy (4K threshold) and FTS indexable kinds. |
 | `deriveProjectKey(cwd)` / `deriveProjectKeyHash(cwd)` | project-key | Normalized git-root project identity. |
 | `threadRoot()` / `defaultPaths(cwd?)` | paths | Dual-DB paths (`THREAD_ROOT` overridable). |
-| `buildStatusCard(store, opts)` | status-card | Per-turn status card (merged views + budget tiers; `opts.isolated: true` shows only the own session, B⑧). |
+| `buildStatusCard(store, opts)` | status-card | Per-turn status card (merged views + budget tiers; `opts.isolated: true` shows only the own session). |
 | `migrateSplit(...)` / `replayIncrement(...)` | migrate | Single-DB → dual-DB migration core. |
-| `SCHEMA_VERSION` | schema | Schema version constant (current: 3, B⑧ isolation columns + session_isolation table). |
+| `SCHEMA_VERSION` | schema | Schema version constant (current: 3 — isolation columns + session_isolation table). |
 | `THREAD_VERSION` | index | Version constant. |
 
 ## Types
 
 `SessionEvent`, `EventKind`, `Goal`, `Decision`, `FeedbackRow`, `AppendOptions`
-(`isolation?: boolean`, B⑧), `StructuredWriteOptions`, `Episode`,
+(`isolation?: boolean`), `StructuredWriteOptions`, `Episode`,
 `LineageNeighbor`, `SearchHit`, `ThreadPaths`.

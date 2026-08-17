@@ -11,13 +11,13 @@
 
 ## 1. 端到端业务流程
 
-### 1.1 会话内主流程（Qoder hooks 基线；dsh 经 `session/event` 订阅同构，现网狗粮）
+### 1.1 会话内主流程（Qoder hooks 基线；dsh 经 `session/event` 订阅同构）
 
 ```
 SessionStart（可无采集）
 用户提交 UserPromptSubmit
   ├─ capture（异步）：用户消息落库（写时建索引 + 轻确认旁路）
-  ├─ status-card（同步）：组装状态卡 → hookSpecificOutput.additionalContext 注入（UserPromptSubmit 路径被采纳，实测）
+  ├─ status-card（同步）：组装状态卡 → hookSpecificOutput.additionalContext 注入
   └─ 底座组装上下文 = 状态卡 + 底座自身历史
 对话循环（每步）
   ├─ PreToolUse → capture（异步）：工具调用落库
@@ -26,7 +26,7 @@ SessionStart（可无采集）
 压缩（manual / auto）
   ├─ PreCompact → 事件流水已是最新（采集持续进行，无需额外接线）
   ├─ 底座压缩 → PostCompact → capture：compact_checkpoint 落库（摘要全文 + trigger/model）
-  └─ 压缩后下一条用户消息 → 状态卡自然回归（PreCompact/PostCompact 的 hookSpecificOutput 不被底座采纳，已实测；UserPromptSubmit 路径兜底）
+  └─ 压缩后下一条用户消息 → 状态卡自然回归（UserPromptSubmit 路径兜底）
 ```
 
 ### 1.2 压缩流程（保真关键路径）
@@ -39,23 +39,23 @@ SessionStart（可无采集）
 
 ### 1.3 跨会话流程
 
-- **继承**（B③）：新会话开场 → 注入上一项目会话 active 决策 / 全局反馈（最近 N 条）——分层优先级 会话内 > 项目 > 用户 > 全局
+- **继承**：新会话开场 → 注入上一项目会话 active 决策 / 全局反馈（最近 N 条）——分层优先级 会话内 > 项目 > 用户 > 全局
 - **检索**：query_session_memory(query, [project_key], [limit]) → 证据片段（带引用）
-- **交接**（B⑥④）：Stop 时从结构化表拼"会话交接卡"写 `.thread/handoff.md`；新会话开场读取（同项目）
+- **交接**：Stop 时从结构化表拼"会话交接卡"写 `.thread/handoff.md`；新会话开场读取（同项目）
 
 ### 1.4 安装接入流程（每底座）
 
 - Qoder：`.qoder/settings.json` 挂 hooks（capture 异步 + status-card 同步）+ `.qoder/settings.local.json` 配 MCP server；`/mcp reload` 或新会话生效
 - dsh：`dsh plugin add dsh-thread`（bundle，一个包闭环）；查询通道 = profile `cordis.patch.yml` 挂 MCP overlay（`npx dsh-thread`，零代码）——README 示例
-- Claude Code / Codex：MCP 配置 + hooks（同构，批 A 已论证）
+- Claude Code / Codex：MCP 配置 + hooks（同构，调研已论证）
 
-### 1.5 升级循环（狗粮）
+### 1.5 升级循环
 
-迭代 Thread → `pnpm build` → 开新会话即用新版本（脚本路径固定，无需改配置）→ 新版本经回归集 + 狗粮验证后再升级基线。
+迭代 Thread → `pnpm build` → 开新会话即用新版本（脚本路径固定，无需改配置）→ 新版本经回归集验证后再升级基线。
 
 ## 2. 输入输出契约
 
-### 2.1 底座 hook 载荷（Qoder 实测字段）
+### 2.1 底座 hook 载荷（Qoder 字段）
 
 - 公共字段：`session_id` / `transcript_path` / `cwd` / `hook_event_name` / `model` / `trigger` / `custom_instructions`
 - UserPromptSubmit：+ 用户消息
@@ -66,11 +66,11 @@ SessionStart（可无采集）
 
 ### 2.2 capture 写入契约
 
-- 输入：底座事件 JSON（stdin）+ 环境（THREAD_DB 可选；**现网默认项目 `.thread/sms.db`，B④ 迁移后目标 = `~/.thread/projects/<项目键>/events.db`（事件）+ `~/.thread/structured.db`（结构化表），见 v2 设计 §3**）
+- 输入：底座事件 JSON（stdin）+ 环境（存储路径 = `~/.thread/projects/<项目键>/events.db`（事件）+ `~/.thread/structured.db`（结构化表），见 v2 设计 §3）
 - 写入约束：幂等（origin 去重，底座前缀 + 事件 uuid）/ 截断（SpillPolicy 4K）/ 写时建索引 / 血缘边 / 情节更新——技术设计 §3.1
 - 产出：events / episodes / goals / decisions / feedback / lineage_edges / spills / metrics 增量
 
-### 2.3 状态卡输出规范（2026-08-14 升级：模型关注度优先）
+### 2.3 状态卡输出规范（模型关注度优先）
 
 **问题**：Thread 管理/注入做得再好，模型不接受或关注度不足则效果打折——纯 Markdown 平铺是低关注度格式。目标：**信息分级 + 多格式混用**，让模型能识别区域边界、快速解析关键项、低噪声。
 
@@ -79,7 +79,7 @@ SessionStart（可无采集）
 2. **信息分级**：critical（active 决策/目标）> context（反馈/教训）> recent（最近事件摘要）——决策区置顶
 3. **紧凑结构化**：critical 区用 JSON（确定性解析、token 高效）；context 区用键值列表；不纯 Markdown
 4. **行动锚点**：critical 区带操作语义（`action:"follow"` 等），提示模型"这是要遵守的状态"而非叙述
-5. **预算内分层分配**：总预算按注入位置分档（2026-08-14 grill 定案）——dsh（系统侧 inject）默认 ≤200 行；Qoder（用户侧 additionalContext）默认 ≤100 行（关注度低，短更可能被完整读到）；Claude/Codex（hookSpecificOutput）默认 ≤200 行待实测修正；分层比例 critical 60% / context 25% / recent 15%（默认，可配）；当前默认条数 = 每区 3~5 条小数值（在预算内自然成立，正式调优由 B⑤ 度量驱动，按预算原则而非条数定死）。core 按 adapterParams 读取，无声明用目标基线（≤200）
+5. **预算内分层分配**：总预算按注入位置分档——dsh（系统侧 inject）默认 ≤200 行；Qoder（用户侧 additionalContext）默认 ≤100 行（关注度低，短更可能被完整读到）；Claude/Codex（hookSpecificOutput）默认 ≤200 行待实测修正；分层比例 critical 60% / context 25% / recent 15%（默认，可配）；当前默认条数 = 每区 3~5 条小数值（在预算内自然成立，正式调优由度量驱动，按预算原则而非条数定死）。core 按 adapterParams 读取，无声明用目标基线（≤200）
 6. **低噪声**：superseded 折叠为单行引用；重复去重
 7. **缓存友好**：稳定段（决策/目标）放前部、高频变化段（recent）放尾部——利于 prefix-cache（与 dsh frozen snapshot 同思路）
 8. **底座适配**：注入位置（系统侧/用户消息前缀）由适配器参数决定
@@ -91,26 +91,26 @@ SessionStart（可无采集）
 {"decisions":[{"id":12,"status":"active","action":"follow","text":"状态卡用XML+JSON混合格式"},{"id":10,"status":"superseded","by":12}],"goals":[{"id":3,"status":"active","text":"二期批B落地"}]}
 </critical>
 <context>
-- [feedback] 不要纯markdown状态卡（correction, 2026-08-14）
+- [feedback] 不要纯markdown状态卡（correction）
 </context>
 <recent>
-- 最近: B② 作用域设计已定稿
+- 最近: 作用域设计已定稿
 </recent>
 </thread_status>
 ```
 
-**验证**：格式有效性入回归集（decision-chain / goal-retention 在格式变更后仍通过）；关注度提升以狗粮观察为准（模型是否遵循 active 决策）。
+**验证**：格式有效性入回归集（decision-chain / goal-retention 在格式变更后仍通过）；关注度提升以观察为准（模型是否遵循 active 决策）。
 
-**注入隔离（安全底线，2026-08-14 补充）**：状态卡/检索片段内容来自事件流水，用户消息可能含恶意指令——注入内容 = **数据不是指令**：XML 区域标签 + JSON 转义（`\"`/控制字符）+ 与底座指令区物理隔离（位于注入区而非系统指令区）；检索片段按数据处理，不拼接为指令。防存储型提示注入。
+**注入隔离（安全底线）**：状态卡/检索片段内容来自事件流水，用户消息可能含恶意指令——注入内容 = **数据不是指令**：XML 区域标签 + JSON 转义（`\"`/控制字符）+ 与底座指令区物理隔离（位于注入区而非系统指令区）；检索片段按数据处理，不拼接为指令。防存储型提示注入。
 
-**词汇边界（2026-08-14 grill 定案）**：状态卡 = 用户可理解的事实 + 低频冲突询问（"项目已有决策：用 pnpm（来自其他会话）。本会话沿用还是改用？"），**永不出现 session/project/scope 等机制词汇**；机制词汇只在工具描述契约段（见 §2.4）；后来者选择提醒仅在冲突发生时出现（低频，面向用户意图而非机制）。
+**词汇边界**：状态卡 = 用户可理解的事实 + 低频冲突询问（"项目已有决策：用 pnpm（来自其他会话）。本会话沿用还是改用？"），**永不出现 session/project/scope 等机制词汇**；机制词汇只在工具描述契约段（见 §2.4）；后来者选择提醒仅在冲突发生时出现（低频，面向用户意图而非机制）。
 
 ### 2.4 MCP 工具契约（query_session_memory）
 
 - 输入：`query`（必填，关键词/短语）/ `limit`（默认 20，≤50）/ `token_budget`（默认 4000）/ `session_id`（可选，缺省最近活跃会话）/ 结构化参数（`kind` / `since` / `until` / `order` / `count_only`——精确查询路径：审计/抽查/时序/计数，接口内聚同一工具路由）
 - 输出：带证据的片段（命中事件正文 + 引用 origin/spill + 时间戳）；未找到 → not-found 标记 + 追问建议
 - 约束：检索不产生模型调用（零成本）；embedding 可选集成不改变契约
-- **description 内置契约段（2026-08-14 grill 定案，主通道）**：工具描述写死行为契约——"当需要历史细节/上下文/不确定时调用本工具，不要编造；结果带引用"。工具描述 = 适配器常量，模型每轮可见、用户不可改、不进事件流水；与状态卡（纯数据）分离。dsh 侧同名工具由 dsh-thread 内嵌 MCP server 提供（spike 实证 `ctx.tools` 注册亦可行，备用接缝）
+- **description 内置契约段（主通道）**：工具描述写死行为契约——"当需要历史细节/上下文/不确定时调用本工具，不要编造；结果带引用"。工具描述 = 适配器常量，模型每轮可见、用户不可改、不进事件流水；与状态卡（纯数据）分离。dsh 侧同名工具由 dsh-thread 内嵌 MCP server 提供（`ctx.tools` 注册为备用接缝）
 
 ### 2.5 检索输出与引用格式
 
@@ -124,16 +124,16 @@ SessionStart（可无采集）
 - **交接卡**：`.thread/handoff.md`——Stop 时生成，新会话读取；内容 = 目标 / active 决策 / 待办 / 最近反馈
 - **错误与降级**：查询失败 → not-found + 建议；库缺失 → 首次运行自动建库；hook 载荷不可解析 → 静默跳过；MCP 不可用 → 状态卡仍注入（注入不依赖查询）
 - **反馈通道**：`/feedback` 命令（产品级）
-- **会话临时隔离（B⑧，2026-08-15 落地）**：自然语言（"隔离/静默/别打扰" ↔ "解除隔离/恢复共享"）或 `/isolate` `/unisolate` 切换本会话隔离——隔离期对话上下文（消息/决策/反馈）仅自己可见，状态卡标注"本会话已隔离"且只列本会话内容（不被其他代理更新干扰）；tool 事件仍共享；解除后历史仍隔离，`/thread-publish <goal|decision|feedback> <id>` 或自然语言按需沉淀转共享
+- **会话临时隔离**：自然语言（"隔离/静默/别打扰" ↔ "解除隔离/恢复共享"）或 `/isolate` `/unisolate` 切换本会话隔离——隔离期对话上下文（消息/决策/反馈）仅自己可见，状态卡标注"本会话已隔离"且只列本会话内容（不被其他代理更新干扰）；tool 事件仍共享；解除后历史仍隔离，`/thread-publish <goal|decision|feedback> <id>` 或自然语言按需沉淀转共享
 
 ## 4. 操作约束
 
-- **多项目隔离**（B②）：project_key 推导规则 = **规范化 git 根**（`git rev-parse --show-toplevel` 的 realpath + 分隔符/大小写归一；非 git 项目退化为规范化 cwd），从 hook 载荷 `cwd` 推导（v2 设计 §3）；查询合并 project + global；非当前项目硬过滤；状态卡合并显示
-- **多 Agent 并行**（2026-08-14 定案）：同一用户可同时用多底座处理同一项目不同模块——同项目单库多写者（SQLite WAL + busy_timeout + 写失败重试队列）；事件按 session_id 隔离、同 project_key 合并；跨 agent 状态同步（A 的记录 B 的状态卡可见）是"底座无关"完整形态。**B⑧ 会话临时隔离（2026-08-15 落地）**：并行做不相关工作时，任一 agent 可隔离本会话避免状态卡互相干扰（见 §3 用户可见行为）
+- **多项目隔离**：project_key 推导规则 = **规范化 git 根**（`git rev-parse --show-toplevel` 的 realpath + 分隔符/大小写归一；非 git 项目退化为规范化 cwd），从 hook 载荷 `cwd` 推导（v2 设计 §3）；查询合并 project + global；非当前项目硬过滤；状态卡合并显示
+- **多 Agent 并行**：同一用户可同时用多底座处理同一项目不同模块——同项目单库多写者（SQLite WAL + busy_timeout + 写失败重试队列）；事件按 session_id 隔离、同 project_key 合并；跨 agent 状态同步（A 的记录 B 的状态卡可见）是"底座无关"完整形态。并行做不相关工作时，任一 agent 可隔离本会话避免状态卡互相干扰（见 §3 用户可见行为）
 - **子代理**：MVP 不采集子代理内部事件；子代理结论经主会话 tool_result 回流并可由轻确认旁路提取候选决策；父子会话血缘为可选边
 - **隐私与安全**：全本地 SQLite（WAL）；结构化表无凭证明文；hook 载荷含路径等本地信息不出库；适配器不做任何云端同步（多机同步非 MVP，D 生态 backlog）
-- **降级矩阵**：采集失败 → 主路径不受影响（异步）；索引失败 → append 回滚（不产生半索引）；**并发写失败 → 入重试队列，不丢弃**；压缩边界注入不采纳（Qoder PreCompact/PostCompact 的 hookSpecificOutput，已实测）→ 状态卡经 UserPromptSubmit 路径兜底；压缩无 checkpoint → 摘要仅靠底座自身（记录缺漏到 metrics）
-- **度量与反馈**：metrics 表埋点（recall_miss / repeat_question / correction / storage_growth / **injection_follow_rate**——active 决策遵循率，轻确认旁路记录 + 人工抽查采样）；漏召回/误判记录入回归集场景（狗粮纪律）；遵循率反哺状态卡格式迭代（A/B：纯 Markdown vs 分级格式）
+- **降级矩阵**：采集失败 → 主路径不受影响（异步）；索引失败 → append 回滚（不产生半索引）；**并发写失败 → 入重试队列，不丢弃**；压缩边界注入不采纳（Qoder PreCompact/PostCompact 的 hookSpecificOutput）→ 状态卡经 UserPromptSubmit 路径兜底；压缩无 checkpoint → 摘要仅靠底座自身（记录缺漏到 metrics）
+- **度量与反馈**：metrics 表埋点（recall_miss / repeat_question / correction / storage_growth / **injection_follow_rate**——active 决策遵循率，轻确认旁路记录 + 人工抽查采样）；漏召回/误判记录入回归集场景；遵循率反哺状态卡格式迭代（A/B：纯 Markdown vs 分级格式）
 
 ## 5. 配置面
 
@@ -145,9 +145,9 @@ SessionStart（可无采集）
 | Spill 阈值 | 4K | core governor 配置 |
 | 状态卡预算 | 200 行 | core state-card 配置 |
 | 压缩触发 | 底座默认（manual + auto 阈值） | 底座侧配置 |
-| THREAD_DB | 现网项目 `.thread/sms.db`；B④ 后 `~/.thread/projects/<项目键>/events.db` + `~/.thread/structured.db` | 环境变量（演练时指向临时库，严禁写生产库） |
+| THREAD_ROOT | `~/.thread/projects/<项目键>/events.db` + `~/.thread/structured.db` | 环境变量（演练时指向临时库，严禁写生产库） |
 
-## 6. 契约基线与适配度评估（2026-08-14 定案）
+## 6. 契约基线与适配度评估
 
 **原则**：契约默认值 ≠ 固定值。**Thread 目标基线 = 按 Thread 目标（保真优先、零 LLM、O(1)、无损）定义的理论最优值**，不是从 Qoder 实测推导；各适配器声明实际适配参数（实测调整）；core 按参数驱动。目标与实测的差距 = 适配度，产出适配度矩阵指导投入优先级。
 
@@ -160,19 +160,19 @@ SessionStart（可无采集）
 
 **适配度评估框架（五维 0~1，实测修正）**：
 
-| 维度 | Qoder（实测） | dsh（实测，现网狗粮） | Claude（待验证） | Codex（待验证） |
+| 维度 | Qoder | dsh | Claude（待验证） | Codex（待验证） |
 |---|---|---|---|---|
 | 捕获覆盖 | hooks 全事件 ✅ 1.0 | session/event 一等 ✅ 1.0 | hooks 同构 ~0.9 | hooks/rules ~0.9 |
 | 注入保真 | hookSpecificOutput 不采纳 → 0.4（UserPromptSubmit 兜底） | inject() 原生 → 1.0（进 session log 已验证） | 待验证 | 待验证 |
-| 检索可达 | MCP ✅ 1.0 | MCP overlay（内嵌 server）✅ 1.0（ctx.tools spike 实证备用） | MCP ✅ 1.0 | MCP ✅ 1.0 |
-| 压缩可见性 | compact_checkpoint ✅ 1.0（实测） | session/event 订阅 → 1.0（待验证） | PreCompact hook → 待验证 | 待验证 |
+| 检索可达 | MCP ✅ 1.0 | MCP overlay（内嵌 server）✅ 1.0（`ctx.tools` 注册备用） | MCP ✅ 1.0 | MCP ✅ 1.0 |
+| 压缩可见性 | compact_checkpoint ✅ 1.0 | session/event 订阅 → 1.0（待验证） | PreCompact hook → 待验证 | 待验证 |
 | 注入位置可控 | 受限（additionalContext 语义） | 精确（pre-step / inject） | 待验证 | 待验证 |
 
-**预期排序**：dsh ≥ Qoder > Claude ≈ Codex（spike / 适配器落地后修正）。产出：适配度矩阵 = 投入优先级输入（优先做适配度最高且受众最大的底座）。
+**预期排序**：dsh ≥ Qoder > Claude ≈ Codex（适配器落地后修正）。产出：适配度矩阵 = 投入优先级输入（优先做适配度最高且受众最大的底座）。
 
 **参数驱动**：适配器声明 `adapterParams`（spill 阈值、状态卡预算、注入位置策略、幂等键来源）；core 读取，无声明用目标基线。
 
-## 7. 成本模型刷新（2026-08-14 补充）
+## 7. 成本模型刷新
 
 v1 §13 基于旧架构，包络升级后刷新（零 LLM 核心 + 状态卡预算 + 引用回拉）：
 

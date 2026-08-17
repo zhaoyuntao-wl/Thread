@@ -37,7 +37,7 @@ Every user-visible change ships with a changeset (`pnpm changeset`).
 
 ## Test / example / doc sync rules
 
-- Behavior changes require a regression scenario in `packages/evals` (B⑦ checklist)
+- Behavior changes require a regression scenario in `packages/evals`
   or an extension of an existing one.
 - API changes update `docs/api.md` and `examples/` in the same PR.
 - The gate is four-fold: `pnpm typecheck && pnpm lint && pnpm test && pnpm eval`;

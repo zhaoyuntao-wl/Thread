@@ -19,8 +19,7 @@ Maintainers: see [MAINTAINING.md](./MAINTAINING.md) for the release workflow.
 - Node >= 20, pnpm >= 9.
 - Monorepo layout: `packages/core`, `packages/adapters/qoder-cli`, `packages/evals`.
   The dsh adapter (`dsh-thread`) lives in its own repository:
-  [dsh-plugin-thread](https://github.com/zhaoyuntao-wl/dsh-plugin-thread) (linked
-  during development via `file:../thread/packages/core`).
+  [dsh-plugin-thread](https://github.com/zhaoyuntao-wl/dsh-plugin-thread).
 - Every package must pass: `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm eval`.
 - Versioning via changesets: add a changeset for any user-visible change:
 
@@ -39,3 +38,5 @@ pnpm changeset
 1. Small, focused changes are preferred.
 2. Run `pnpm install`, `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm eval` locally.
 3. CI runs the same checks on GitHub Actions.
+4. By contributing, you agree your contributions are licensed under the
+   [MIT License](./LICENSE).
