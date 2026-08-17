@@ -9,13 +9,18 @@ const ISOLATE_RE = /^(?:\/isolate|[/／]isolate|隔离|开始隔离|进入隔离
 const UNISOLATE_RE = /^(?:\/unisolate|[/／]unisolate|解除隔离|退出隔离|恢复共享)$/;
 const PUBLISH_CMD_RE = /^\/thread-publish\s+(goal|decision|feedback)\s+(\d+)$/;
 const PUBLISH_NL_RE = /^把(?:刚才|刚才的)?(?:这个)?(?:决策|决定|目标|偏好)(?:共享|公开|同步)(?:出去|给项目)?$/;
+const FEEDBACK_DEL_RE = /^\/feedback-del\s+(\d+)$/;
 
 function tableForKind(kind) {
   return kind === "goal" ? "goals" : kind === "decision" ? "decisions" : "feedback";
 }
 
 function parseIsolationCommand(body) {
-  const m = body.match(PUBLISH_CMD_RE);
+  const delMatch = body.trim().match(FEEDBACK_DEL_RE);
+  if (delMatch) {
+    return { action: "feedback-del", id: Number(delMatch[1]) };
+  }
+  const m = body.trim().match(PUBLISH_CMD_RE);
   if (m) {
     return { action: "publish", kind: m[1], id: Number(m[2]) };
   }
@@ -120,6 +125,9 @@ try {
       } else {
         publishLatestIsolated(store, event.session_id);
       }
+    } else if (cmd?.action === "feedback-del" && cmd.id) {
+      // 反馈治理恢复通道：删除教训行（教训可删即恢复，B⑥-②）
+      store.deleteFeedback(cmd.id);
     }
   }
   const isolated = store.getSessionIsolation(event.session_id);

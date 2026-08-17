@@ -563,6 +563,13 @@ export class ThreadStore {
       ) as FeedbackRow;
   }
 
+  // 反馈治理（B⑥-② 恢复通道）：按 id 删除反馈行——教训可删即恢复；事件流水保留（真相源不变）。
+  // 单用户语义：跨会话行亦可删（治理动作由用户/其代理发起）。
+  deleteFeedback(id: number): boolean {
+    const res = this.structuredDb.prepare(`DELETE FROM feedback WHERE id = ?`).run(id);
+    return res.changes > 0;
+  }
+
   proposeDecision(
     sessionId: string,
     text: string,

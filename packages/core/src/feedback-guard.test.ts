@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { extractBlockedTokens, matchToolFeedback } from "./feedback-guard.js";
+import { ThreadStore } from "./store.js";
 import type { FeedbackRow } from "./store.js";
 
 const row = (text: string, kind: "preference" | "correction" = "correction"): FeedbackRow =>
@@ -47,5 +51,32 @@ describe("matchToolFeedback（工具名匹配）", () => {
   it("命中后返回第一条匹配教训原文", () => {
     const rows = [row("第一条无关"), row("不要用 grep"), row("也不要再用 grep")];
     expect(matchToolFeedback(rows, "grep")?.text).toBe("不要用 grep");
+  });
+});
+
+describe("deleteFeedback（B⑥-② 恢复通道：教训可删即恢复）", () => {
+  let dir: string;
+  let store: ThreadStore;
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "thread-guard-"));
+    store = new ThreadStore({ eventsPath: join(dir, "events.db"), structuredPath: join(dir, "structured.db"), projectKey: "guard-proj" });
+  });
+
+  afterAll(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("删除后守卫不再命中（恢复通道闭环）", () => {
+    const row = store.addFeedback("s1", "不要用 pwsh 改配置", "correction");
+    const before = matchToolFeedback(store.getFeedbackMerged("s1", "guard-proj", 50), "pwsh");
+    expect(before?.id).toBe(row.id);
+    expect(store.deleteFeedback(row.id)).toBe(true);
+    expect(matchToolFeedback(store.getFeedbackMerged("s1", "guard-proj", 50), "pwsh")).toBeUndefined();
+  });
+
+  it("不存在的 id 返回 false", () => {
+    expect(store.deleteFeedback(999999)).toBe(false);
   });
 });
