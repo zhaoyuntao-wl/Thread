@@ -3,7 +3,7 @@
 ## 0. 文档关系
 
 - [v1 设计](./session-memory-system-design.md)：需求与架构权威基线
-- [v2 设计](./session-memory-system-design.md)：二期规划、底座战略、产品包络
+- [v2 设计](./session-memory-system-design.md)：二期规划、产品包络
 - [物理分库专篇](./b4-storage-split.md)：用户级结构化库 + 项目事件库
 - **本文**：代码级设计与约束——实现必须遵守。与 v1/v2 冲突时先改文档再改代码。
 

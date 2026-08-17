@@ -129,7 +129,7 @@ SessionStart（可无采集）
 
 ## 4. 操作约束
 
-- **多项目隔离**：project_key 推导规则 = **规范化 git 根**（`git rev-parse --show-toplevel` 的 realpath + 分隔符/大小写归一；非 git 项目退化为规范化 cwd），从 hook 载荷 `cwd` 推导（v2 设计 §3）；查询合并 project + global；非当前项目硬过滤；状态卡合并显示
+- **多项目隔离**：project_key 推导规则 = **规范化 git 根**（`git rev-parse --show-toplevel` 的 realpath + 分隔符/大小写归一；非 git 项目退化为规范化 cwd），从 hook 载荷 `cwd` 推导（v2 设计 §4）；查询合并 project + global；非当前项目硬过滤；状态卡合并显示
 - **多 Agent 并行**：同一用户可同时用多底座处理同一项目不同模块——同项目单库多写者（SQLite WAL + busy_timeout + 写失败重试队列）；事件按 session_id 隔离、同 project_key 合并；跨 agent 状态同步（A 的记录 B 的状态卡可见）是"底座无关"完整形态。并行做不相关工作时，任一 agent 可隔离本会话避免状态卡互相干扰（见 §3 用户可见行为）
 - **子代理**：MVP 不采集子代理内部事件；子代理结论经主会话 tool_result 回流并可由轻确认旁路提取候选决策；父子会话血缘为可选边
 - **隐私与安全**：全本地 SQLite（WAL）；结构化表无凭证明文；hook 载荷含路径等本地信息不出库；适配器不做任何云端同步（多机同步非 MVP，D 生态 backlog）

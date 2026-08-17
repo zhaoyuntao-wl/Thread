@@ -1,6 +1,6 @@
 # 会话管理系统设计文档 v2（Session Memory System）
 
-> 状态：**二期规划与未决项**——v1 基线（需求/架构/已实现部分）见 [v1 文档](../v1/session-memory-system-design.md)；本文件承载二期规划、开放问题与已确认的二期设计。改动架构/接口时先改对应版本设计文档再改代码。代码级设计（模块边界 / 数据模型 / 接口契约 / 不变量 / 适配器契约 / 验证体系 / 存储治理）见 [technical-design.md](./technical-design.md)；业务设计（端到端流程 / 用户可见行为 / 配置面 / 成本模型）见 [business-design.md](./business-design.md)。
+> 状态：**二期规划与已确认的二期设计**——v1 基线（需求/架构/已实现部分）见 [v1 文档](../v1/session-memory-system-design.md)；本文件承载二期规划与已确认的二期设计。改动架构/接口时先改对应版本设计文档再改代码。代码级设计（模块边界 / 数据模型 / 接口契约 / 不变量 / 适配器契约 / 验证体系 / 存储治理）见 [technical-design.md](./technical-design.md)；业务设计（端到端流程 / 用户可见行为 / 配置面 / 成本模型）见 [business-design.md](./business-design.md)。
 
 ---
 
@@ -27,7 +27,7 @@
 ### 批 A：前置调研（已完成）
 
 - 底座侧上下文裁剪能力调研 → 结论：PreCompact/PostCompact hooks 可用，底座可控路径成立
-- 本地旁路模型选型（桌面调研）→ 结论：选型表见 §2，全部本地化
+- 本地旁路模型选型（桌面调研）→ 结论：全部本地化（轻确认分类器 / 语义抽取小 LLM / embedding / reranker，详见本地设计文档）
 
 ### 批 B：记忆层能力（主体已落地）
 
@@ -41,7 +41,7 @@
    - 压力导航：状态卡检测上下文压力，超阈值附压缩建议 —— 规划
    - 交接卡：Stop 时拼"会话交接卡"，新会话开场读取 —— 规划
 6. **场景级保真回归集**：跨压缩保真场景入回归（decision-chain / repeat-question / goal-retention / file-lineage / compact-fidelity / injection-follow / scope-filter / migration-lossless / rebuild-recovery / isolation），`pnpm eval` 入 CI 门禁 —— **已落地（10 场景）**
-7. **dsh spike**：MCP overlay 零代码挂载 + 原生插件三接缝（`session/event` 订阅 / `agent.inject()` 注入 / `ctx.tools` 注册）+ 多写者并发写验证 —— **已完成，结论见 §4**
+7. **dsh 适配器**：MCP overlay 零代码挂载 + 原生插件三接缝（`session/event` 订阅 / `agent.inject()` 注入 / `ctx.tools` 注册）+ 多写者并发写验证 —— **已完成**
 
 验收：功能正确性在底座无关层验收；注入效果（状态卡遵循率）在 dsh 上验收。
 
@@ -56,62 +56,7 @@
 
 ---
 
-## 1. 底座战略与产品形态
-
-### 候选底座调研（结论）
-
-- **deepseek-ai/deepseek-harness（dsh，首选）**：DeepSeek 官方 agent harness，TS + MIT，"Everything is a Plugin"（Cordis 微内核）。关键接缝：会话日志 = append-only 事件溯源（"Model-visible means logged"）；`agent.inject()` 原生上下文注入；`agent/pre-step` 瀑布可改写/拒绝模型所见；`ctx.tools` 注册即进 prompt 组装；压缩成熟（压力阈值 + 溢出恢复 + 统一 token meter）。重叠面：`goal`（仅同会话）、`feedback`（仅记录）、`examples/mcp-memory`（第三方记忆，默认关闭）→ **dsh 管会话内，Thread 管跨会话/跨压缩，边界互证**。
-- **earendil-works/pi**（badlogic 出品，MIT）：阈值压缩 + 树形会话 + 扩展位（convertToLlm 钩子 / compaction 模块可替换 / Dynamic Context）。裸编码能力中位，综合任务靠 Extension 补课。
-- **oh-my-pi**（can1357，Rust 引擎）：电池全包（32 工具、角色路由、sub-agent 编排）；`mnemopi`（知识记忆）、`snapcompact`（PNG 位图帧保细节）——**知识记忆与 Thread 会话保真不同向，保细节与保结构互补**。
-- **Qoder CLI**：第一参考适配器（hook 事件 / 上下文注入 / MCP 客户端三弱能力实证）。
-
-**Thread 定位收敛——会话保真策略层，边界（两条半）**：
-
-- 知识记忆**集成不重造**：知识轨 = core 自带本地 BM25 确定性兜底 + 可选 provider 集成（发布物只含集成推荐清单不打包）——不自研 LLM 蒸馏
-- 不做压缩保细节（底座 compaction / snapcompact 的地盘）
-- 核心仍是状态结构：目标/决策状态机 + 血缘 + O(1) 状态卡 + 压缩边界 checkpoint + 全链路引用（摘要是索引、原文是真相）
-
-**护城河**：窄而深 + 验证体系——漏召回/误判/漂移的度量与回归集是保真层命门；会话保真是真空缺。
-
-**交付形态——适配器矩阵（主）+ dsh 双形态（旗）**：
-
-- 主市场：Thread 适配器 × N 底座（三弱能力即可移植：hook 事件 / 上下文注入 / MCP）——Qoder 适配器已跑通，Claude Code hooks 同构，移植成本低。受众 = 全量长任务编码者，不押注任何底座。
-- dsh 双形态：① **day-0 MCP overlay**——查询通道零代码挂载；② **`dsh-thread` 原生插件 bundle**（独立仓库 `dsh-plugin-thread`）——订阅 `session/event` 建结构化表 + BM25（采集）、`agent.inject()` 状态卡（注入）、内嵌 MCP server 查询（备用接缝 `ctx.tools` 注册）。完全接管形态列为后发独立包 `dsh-thread-max`。**"完全接管"不是保真价值的必要条件**——旁路观测 + 注入已交付 80% 价值。
-- pi / OMP：降级为适配器矩阵 backlog。
-
-**开源发布路径与社区策略**：
-
-- **双身份发布**：社区内身份 = `dsh-thread` 插件（`dsh-plugin` topic + npm bundle，发现漏斗 = dsh 用户 → topic → 装插件 → 效果立现）；独立身份 = Thread 仓库（权威源：设计文档 / 回归集 / 价值主张佐证 + 适配器矩阵证据）——不做"dsh 的一个插件"。
-- **交付形态（npm）**：`@thread/core`（依赖库）+ `dsh-thread`（旗舰插件，单包闭环：采集 + 注入 + 内嵌 MCP server；better-sqlite3 随包解决）。后发路线图：`dsh-thread-max`（完全接管形态）。qoder-cli / evals 随仓库公开不发布。命名遵守 dsh 惯例。
-- **发布节奏**：跟随 dsh release train——preview 破坏性变更下版本钉定 + compat 矩阵（CI 对 dsh 多版本回归），只锚定核心不变量（session 日志 / inject / tools / pre-step）。
-- **发布时机判定（成熟度门槛，非日历时间）**：① **证据齐**——场景级保真回归集 + 外部底座对照数据；② **一键可装**——一条命令装完、零配置、依赖随包解决；③ **稳定窗口**——钉版本 + compat 矩阵，随 dsh release train 持续适配（preview 转稳定是加分项非硬门槛）；④ **命名占位**——npm/GitHub 名称未占用确认。顺序建议：`@thread/core` 先发 → `dsh-thread` 旗舰 → `dsh-thread-max` 后发。
-
-### 竞品架构与技术调研（结论）
-
-- **捕获机制（最致命维度）**：竞品全部模型驱动（靠模型自觉 + 用户记得说"存一下"，漏存/错存/延迟）或事后蒸馏；**Thread = 确定性订阅**（dsh session/event / 各底座 hooks）——零依赖、实时、无损。
-- **技术维度对照**：检索（竞品：子串/向量+pgvector；Thread：FTS5 BM25 + 引用回拉，embedding 可选）｜部署（竞品：Python daemon+Docker/PostgreSQL；Thread：内嵌 SQLite + hook 脚本 / dsh 插件，无常驻）｜成本（竞品：每次存取过 LLM/embedding；Thread：**核心零 LLM**）｜压缩交互（竞品：无视底座压缩边界；Thread：checkpoint + 状态卡回归，独有）｜治理（竞品：审批门/时间衰减；Thread：superseded 状态机确定性裁决）｜验证（竞品：单元测试；Thread：场景级保真回归集 + 度量，独有）。
-- **结论：不隔离，正面竞争**——与竞品同场竞争会话记忆功能集，靠架构全面占优：① 场景覆盖（模型忘了存也不丢、压缩后细节可回拉、跨底座同一份记忆）；② 性能（内嵌零常驻、捕获近零延迟、BM25 无网络依赖）；③ 成本（零 LLM 核心）；④ 信任（引用可溯源 + 状态机 + 回归集自证）。
-- **仍不做**：代码图谱/知识图谱（集成成熟 provider，红海）。
-
-### 外部借鉴（dsh-routing-suite，已评审）
-
-定位差异：它是**行为条件化层**（首轮选人格 + 工具过滤），Thread 是**记忆保真层**；哲学同源（都不信任模型自管理）。借鉴清单：
-
-| # | 借鉴点 | 落点 | 状态 |
-|---|---|---|---|
-| ① | 首轮杠杆：首条消息即锚定轨迹 → 状态卡首轮加权（全量档），后续维持轻量 O(1) | buildStatusCard `firstTurn` 档 | ✅ 已实施 |
-| ② | few-shot 示例强化工具契约段 | MCP server TOOL_DESCRIPTION 加调用示例 | ✅ 已实施 |
-| ③ | 绑定式收束语（纯"再想想"是陷阱；带行动收束收敛率 100%） | 状态卡尾行 → "…查询并基于结果给出结论" | ✅ 已实施 |
-| ④ | 注入安全原则（整段替换丢 plan 边界 → 重复探索） | 注入 = 追加 user message，禁止改写/替换底座 section | ✅ 已实施 |
-| ⑤ | 实证方法论：固定微任务 + 定量分类器 + n 次区分度 | 注入遵循率从断言升级为带实验的区分度数字 | 📝 记入 B⑤ 设计 |
-| ⑥ | 前缀缓存友好性实证（尾部注入无效；稳定段在前） | business-design §2.3"稳定段在前"获外部背书 | 📝 记入 B⑤ 设计 |
-| ⑦ | 诚实量化哲学：行为层有相变，量化到稳定带 | 提醒治理显式化稳定带（每轮/低频/仅冲突时），不连续微调 | 📝 记入提醒治理 |
-| ⑧ | ~~模型/关键词自分类路由~~ 不学：与底座无关 + 确定性内核冲突 | — | ❌ 反向 |
-| ⑨ | ~~运行时免重启注入~~ 不学：接缝脆弱源，保持锚定核心不变量 + 重启生效 | — | ❌ 反向 |
-
----
-
-## 2. 产品包络
+## 1. 产品包络
 
 **定位**：跨底座会话保真层——确定性无损捕获 + 跨压缩边界保真 + 决策/目标状态机 + 场景级验证体系；知识记忆集成第三方 provider。
 
@@ -130,7 +75,7 @@
 
 ---
 
-## 3. 会话临时隔离（已落地）
+## 2. 会话临时隔离（已落地）
 
 同项目双代理并行做不相关工作时的状态卡互相干扰问题 → 会话级可变隔离开关。语义：对话上下文（消息/决策/反馈）**全链路仅自己可见**（合并视图 / search / queryEvents / expand / 血缘全部过滤）；项目事实（tool 事件）**共享不断链**（"谁在什么时间干了什么"可溯源，代价是事实的对话溯源丢失——已接受）；解除后历史仍隔离、后续共享、按需沉淀（`/thread-publish` 或自然语言指定转共享）。
 
@@ -140,27 +85,7 @@
 
 ---
 
-## 4. 待验证点（dsh 接缝，已验证结论）
-
-① **MCP overlay 零代码挂载** ✅：`--patch` 覆盖层 insert cordis 条目（`@deepseek-ai/dsh-mcp-client`，stdio 指向 Thread MCP server——现为 dsh-thread 内嵌 server）即挂载成功，headless 模型实测调用 `mcp__thread__query_session_memory` 工具。
-② **原生插件三接缝** ✅：`session/event` 订阅（事件流实时到达）；`agent.inject()`（UserMessage 级排队入 session log，模型实测遵循注入标记）；`ctx.tools` 注册（模型实测调用）。**inject 进压缩摘要 = 成立**——inject 的 user/message append 进流水，compaction summarize 输入 = 重放对话前缀，必然包含注入内容。另发现新接缝 `system-prompt/assemble` waterfall（比 inject 更系统的注入通道，可双通道）。
-③ **dsh 编码能力** ✅：独立 TS 任务自主完成全流程（install→实现→测试→typecheck+test），实现质量高。
-④ **钉版本策略**：dsh preview 破坏性变更下锚定核心不变量 = session 日志 / 事件 / inject / pre-step（有运行时 "Model-visible means logged" 保护）；`dsh-thread` peer 依赖钉 `0.1.0-rc.6`；挂载 = `dsh plugin add dsh-thread`。
-⑤ **多写者并发写** ✅：临时库压测（8 写者 × 500 = 4000/4000 全成功，70 次 busy 重试，零丢失、integrity_check=ok）。**关键发现：`busy_timeout` 未让并发写者排队**——better-sqlite3 多进程并发写 WAL 时立即抛 `SQLITE_BUSY`，**重试队列（catch `SQLITE_BUSY` → sleep → 重试）是成功保证，必需而非可选项**。实现约束：capture 侧必须捕获 SQLITE_BUSY 并重试（100ms 间隔、上限 ≥20 次）。
-
----
-
-## 5. 开放问题（实现前需定）
-
-① 知识轨 provider 首选 —— **已决**：本地 BM25 兜底常驻 + 可选 provider 只进推荐清单不打包。
-② 语义检索是否可选集成 —— **已决**：确认延后——结构化路径（时间过滤/排序/计数，确定性 SQL 路径）进核心；语义检索不进 MVP，待度量显示 BM25 漏召回率高再评估。
-③ 交接卡落盘 —— **已决**：项目目录 `.thread/handoff.md`（模型可经底座文件读取直接访问）。
-④ **服务层结构化查询**：`query_session_memory` 仅语义检索，无时间范围/排序/kind 过滤/计数聚合——纯 MCP 接入的 Agent 无法回答"抽查/审计"类精确时序问题。**设计方向已定：接口内聚 + 主动提醒**——不新增一堆查询接口；在现有查询接口内部做路由（时序/计数/审计类 → 结构化执行路径，语义类 → BM25），并由状态卡按上下文注入合适的检索提醒触发查询。**结构化查询路径已实现**（`queryEvents` + MCP 结构化参数：kind 过滤/时间范围/排序/计数）。协作便捷封装（"对方最近做了什么"一键查询）**待规划**。
-⑤ 单底座主写约束 —— **已推翻**：改为**同项目单库多写者**（SQLite WAL + busy_timeout + 写失败重试队列）——多底座并行是真实场景（同项目不同模块），跨 agent 状态同步是"底座无关"完整形态；并发写可靠性已在 dsh spike 验证（§4 ⑤）。
-
----
-
-## 6. 二期规划
+## 3. 二期规划
 
 - 血缘语义边（模型抽取，需先解决质量与评估）
 - 动态模型路由（任务分类 → 选模型，失败降级链，预算封顶）
@@ -169,7 +94,7 @@
 - 评估面板（线上度量可视化）
 - 摘要模型：已瘦身——摘要由底座 compaction 承担，Thread 只留情节归档的确定性降级链
 
-## 7. 作用域与命名空间
+## 4. 作用域与命名空间
 
 > 状态：设计已确认，已实现（结构化查询路径与合并视图落地）。动机：按项目隔离不应"全部隔离"——项目相关记忆（任务决策、事件）要隔离防污染，用户偏好与项目无关，应全局共享。
 

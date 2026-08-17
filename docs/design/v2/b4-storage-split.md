@@ -1,6 +1,6 @@
 # 物理分库设计专篇：用户级结构化库 + 项目事件库
 
-> 关联：v2 设计 §3 存储模型、technical-design §2 数据模型 v2。
+> 关联：v2 设计 §4 作用域与命名空间（存储模型）、technical-design §2 数据模型 v2。
 
 ## 1. 背景与动机
 
@@ -25,7 +25,7 @@
 - **键的双重表示**：
   - `project_key` **列值** = 规范化路径（`deriveProjectKey(cwd)`，如 `d:/Agent-work/workspace/Thread`）——迁移回填必须沿用此格式，写 hash 会导致同项目分裂成两个键、合并视图/硬过滤失效。
   - 事件库**目录名** = `deriveProjectKeyHash(cwd)`（31 哈希 → base36，简短确定）——仅用于文件系统目录。
-  - 覆盖关系：v2 主设计 §3 的"`~/.thread/projects/<规范化项目键>/events.db`"中"规范化项目键"即此目录名 hash，与列值（规范化路径）是同一键的两种表示，不可混用。
+  - 覆盖关系：v2 主设计 §4 的"`~/.thread/projects/<规范化项目键>/events.db`"中"规范化项目键"即此目录名 hash，与列值（规范化路径）是同一键的两种表示，不可混用。
 - 根目录：默认 `os.homedir()/.thread`；演练/测试用环境变量 `THREAD_ROOT` 覆盖（取代单库语义的 `THREAD_DB`）。
 - 两库各自 `schema_version`，共用 `SCHEMA_VERSION = 2`，各自迁移链（ensureSchema 按库类型建表/迁移）。
 
