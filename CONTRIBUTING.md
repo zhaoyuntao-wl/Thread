@@ -17,8 +17,10 @@ Maintainers: see [MAINTAINING.md](./MAINTAINING.md) for the release workflow.
 ## Development
 
 - Node >= 20, pnpm >= 9.
-- Monorepo layout: `packages/core`, `packages/adapters/dsh` (`dsh-thread`),
-  `packages/adapters/qoder-cli`, `packages/evals`.
+- Monorepo layout: `packages/core`, `packages/adapters/qoder-cli`, `packages/evals`.
+  The dsh adapter (`dsh-thread`) lives in its own repository:
+  [dsh-plugin-thread](https://github.com/zhaoyuntao-wl/dsh-plugin-thread) (linked
+  during development via `file:../thread/packages/core`).
 - Every package must pass: `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm eval`.
 - Versioning via changesets: add a changeset for any user-visible change:
 

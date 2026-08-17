@@ -22,7 +22,8 @@ Every user-visible change ships with a changeset (`pnpm changeset`).
 5. Tag and create the GitHub Release from the generated `CHANGELOG.md` entries.
 6. Post-release smoke test: install each published package from a clean shell
    (`dsh plugin add dsh-thread`, then `npx dsh-thread` for the embedded MCP
-   server; `@thread/core` installs as a dependency).
+   server; `@thread/core` installs as a dependency). `dsh-thread` publishes from
+   its own repository ([dsh-plugin-thread](https://github.com/zhaoyuntao-wl/dsh-plugin-thread)).
 
 ## Breaking change policy
 
@@ -30,8 +31,9 @@ Every user-visible change ships with a changeset (`pnpm changeset`).
   phase-2 plans), then implement.
 - Changeset marks `major` and states the migration path.
 - README and `docs/api.md` are updated in the same PR.
-- For `dsh-thread`, extend the compat matrix in `.github/workflows/ci.yml` when
-  the pinned dsh version changes.
+- For `dsh-thread`, extend the compat matrix in `.github/workflows/ci.yml` of the
+  [dsh-plugin-thread](https://github.com/zhaoyuntao-wl/dsh-plugin-thread)
+  repository when the pinned dsh version changes.
 
 ## Test / example / doc sync rules
 

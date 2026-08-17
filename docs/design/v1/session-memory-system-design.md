@@ -1,6 +1,6 @@
 # 会话管理系统设计文档 v1（Session Memory System）
 
-> 日期：2026-08-07 ｜ 状态：**v1 基线**——需求与架构已确认，MVP 已实现（2026-08-07 修订：底座定位修正 + 开源计划；2026-08-12 修订：底座确认为 Qoder CLI，Codewhale 降为第二候选适配器；2026-08-13 修订：按版本拆分——二期规划 / 开放问题 / 作用域设计移至 [v2 文档](../v2/session-memory-system-design.md)；2026-08-15 修订：现网状态以 v2 为准——狗粮切换 dsh、许可证统一 MIT、发布形态 = `@thread/core` + `dsh-thread`）
+> 日期：2026-08-07 ｜ 状态：**v1 基线**——需求与架构已确认，MVP 已实现（2026-08-07 修订：底座定位修正 + 开源计划；2026-08-12 修订：底座确认为 Qoder CLI，Codewhale 降为第二候选适配器；2026-08-13 修订：按版本拆分——二期规划 / 开放问题 / 作用域设计移至 [v2 文档](../v2/session-memory-system-design.md)；2026-08-15 修订：现网状态以 v2 为准——狗粮切换 dsh、许可证统一 MIT、发布形态 = `@thread/core` + `dsh-thread`；**2026-08-18 修订：仓库分仓（物理布局变更，架构形态不变）——`dsh-thread` 迁出为独立仓库 `dsh-plugin-thread`，本仓库 = 内核 + qoder-cli 适配器 + evals，详见 v2 头部修订记录**）
 > 定位：编码 Agent 的**上下文保真**记忆层——独立开源项目 **Thread**（Session memory with lineage for coding agents），底座无关
 
 ---
@@ -158,8 +158,8 @@
 - **形态**：独立项目开源（不做任何项目的分支）——通用记忆层，底座无关。
 - **名称**：Thread；副标题 *Session memory with lineage for coding agents*。
 - **许可证**：MIT（2026-08-15 拍板统一，原定 Apache-2.0）。
-- **技术栈**：TypeScript/Node；pnpm monorepo（`packages/core` + `packages/adapters/qoder-cli` + `packages/adapters/dsh` + `packages/evals` + `docs`；Codewhale 适配器仍为候选，未入库），changesets 统一版本。
-- **适配器**：Qoder CLI 参考适配器内置本仓库（同版本同 CI，保证开箱即跑）；dsh 旗舰插件 `dsh-thread`（2026-08-14 起现网狗粮）；Codewhale 侧只放文档推荐位（候选，能力调研后定）。
+- **技术栈**：TypeScript/Node；pnpm monorepo（`packages/core` + `packages/adapters/qoder-cli` + `packages/evals` + `docs`；Codewhale 适配器仍为候选，未入库），changesets 统一版本。**2026-08-18 分仓**：`dsh-thread` 迁出至独立仓库 `dsh-plugin-thread`（私有，稳定后公开；开发期 `file:` link 依赖 core）。
+- **适配器**：Qoder CLI 参考适配器内置本仓库（同版本同 CI，保证开箱即跑）；dsh 旗舰插件 `dsh-thread`（2026-08-14 起现网狗粮，独立仓库维护）；Codewhale 侧只放文档推荐位（候选，能力调研后定）。
 - **狗粮**：日常开发与验证使用 dsh（`dsh-thread` 插件 + Thread MCP 查询通道）；Qoder hooks 通道保留。
 
 ### 发布节奏（三阶段）

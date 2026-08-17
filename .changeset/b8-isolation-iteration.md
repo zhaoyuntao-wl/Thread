@@ -1,6 +1,5 @@
 ---
 "@thread/core": minor
-"dsh-thread": minor
 "@thread/adapter-qoder-cli": minor
 ---
 

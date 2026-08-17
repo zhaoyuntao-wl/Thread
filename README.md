@@ -35,9 +35,13 @@ SMS runs as a separate process. Bases are connected through three weak capabilit
 | Package | Description |
 |---|---|
 | `@thread/core` | Event pipeline, structured tables (goals/decisions/feedback), lineage graph, BM25 retrieval, session isolation |
-| `dsh-thread` | Flagship dsh plugin, one-package closed loop: `session/event` capture + per-turn status-card injection + embedded MCP server (`query_session_memory`, `bin=dsh-thread`) |
 | `@thread/adapter-qoder-cli` | Reference adapter for Qoder CLI (hooks ingestion, context injection, MCP query tool) |
 | `@thread/evals` | Regression suite: 10 scenario-level fidelity checks, CI gate |
+
+The dsh adapter (`dsh-thread`) lives in its own repository:
+[dsh-plugin-thread](https://github.com/zhaoyuntao-wl/dsh-plugin-thread) — one-package
+closed loop: `session/event` capture + per-turn status-card injection + embedded MCP
+server (`query_session_memory`, `bin=dsh-thread`).
 
 Install the flagship:
 
@@ -47,7 +51,7 @@ dsh plugin add dsh-thread
 
 Enable it in your profile's `bundles` and mount the MCP overlay for in-session
 `query_session_memory` (profile `cordis.patch.yml`, command `npx dsh-thread`) —
-see [packages/adapters/dsh/README.md](./packages/adapters/dsh/README.md).
+see the [dsh-plugin-thread README](https://github.com/zhaoyuntao-wl/dsh-plugin-thread).
 
 ## Development
 

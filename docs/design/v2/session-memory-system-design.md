@@ -1,6 +1,8 @@
 # 会话管理系统设计文档 v2（Session Memory System）
 
 > 日期：2026-08-13 ｜ 状态：**规划中，批 B 主体已实现（B②~B⑧ 落地，2026-08-15）**——v1 基线（需求/架构/已实现部分）见 [v1 文档](../v1/session-memory-system-design.md)；本文件承载二期规划、开放问题与已确认的二期设计，实现前仍需在 v1 与本文档间保持一致，改动架构/接口时先改对应版本设计文档再改代码。
+>
+> **2026-08-18 修订（仓库分仓，物理布局变更、架构形态不变）**：`dsh-thread` 从本仓库 `packages/adapters/dsh` 迁出为独立仓库 `dsh-plugin-thread`（私有，稳定后公开）——独立发布、独立 CI compat 矩阵、跟随 dsh release train；开发期依赖 `@thread/core` 走 `file:` link，core 稳定后切 npm 版本。本仓库 = 通用内核（`@thread/core`）+ 薄适配器（`qoder-cli`）+ 回归集（`evals`）。本文件及 v1 中关于 dsh-thread 的架构描述（单包闭环、接缝、发布形态）不变，仅物理仓库位置变化。
 
 ---
 
