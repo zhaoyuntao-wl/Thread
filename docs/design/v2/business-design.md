@@ -47,11 +47,11 @@ SessionStart（可无采集）
 
 - Qoder：`.qoder/settings.json` 挂 hooks（capture 异步 + status-card 同步）+ `.qoder/settings.local.json` 配 MCP server；`/mcp reload` 或新会话生效
 - dsh：`dsh plugin add dsh-thread`（bundle，一个包闭环）；查询通道 = profile `cordis.patch.yml` 挂 MCP overlay（`npx dsh-thread`，零代码）——README 示例
-- Claude Code / Codex：MCP 配置 + hooks（同构，调研已论证）
+- Claude Code / Codex：MCP 配置 + hooks（同构）
 
-### 1.5 升级循环
+### 1.5 版本发布流程
 
-迭代 Thread → `pnpm build` → 开新会话即用新版本（脚本路径固定，无需改配置）→ 新版本经回归集验证后再升级基线。
+代码变更经回归集验证后合入基线；采集/注入脚本路径固定，新版本随新会话生效，无需修改配置。
 
 ## 2. 输入输出契约
 
@@ -66,7 +66,8 @@ SessionStart（可无采集）
 
 ### 2.2 capture 写入契约
 
-- 输入：底座事件 JSON（stdin）+ 环境（存储路径 = `~/.thread/projects/<项目键>/events.db`（事件）+ `~/.thread/structured.db`（结构化表），见 v2 设计 §3）
+- 输入：底座事件 JSON（stdin）+ 环境（`THREAD_ROOT` 可选，指定存储根目录；默认 `~/.thread/`，演练时指向临时根目录，严禁写生产库）
+- 存储：双库——`~/.thread/structured.db`（用户级结构化表）+ `~/.thread/projects/<项目键>/events.db`（项目事件库）
 - 写入约束：幂等（origin 去重，底座前缀 + 事件 uuid）/ 截断（SpillPolicy 4K）/ 写时建索引 / 血缘边 / 情节更新——技术设计 §3.1
 - 产出：events / episodes / goals / decisions / feedback / lineage_edges / spills / metrics 增量
 
@@ -79,7 +80,7 @@ SessionStart（可无采集）
 2. **信息分级**：critical（active 决策/目标）> context（反馈/教训）> recent（最近事件摘要）——决策区置顶
 3. **紧凑结构化**：critical 区用 JSON（确定性解析、token 高效）；context 区用键值列表；不纯 Markdown
 4. **行动锚点**：critical 区带操作语义（`action:"follow"` 等），提示模型"这是要遵守的状态"而非叙述
-5. **预算内分层分配**：总预算按注入位置分档——dsh（系统侧 inject）默认 ≤200 行；Qoder（用户侧 additionalContext）默认 ≤100 行（关注度低，短更可能被完整读到）；Claude/Codex（hookSpecificOutput）默认 ≤200 行待实测修正；分层比例 critical 60% / context 25% / recent 15%（默认，可配）；当前默认条数 = 每区 3~5 条小数值（在预算内自然成立，正式调优由度量驱动，按预算原则而非条数定死）。core 按 adapterParams 读取，无声明用目标基线（≤200）
+5. **预算内分层分配**：总预算按注入位置分档——dsh（系统侧 inject）默认 ≤200 行；Qoder（用户侧 additionalContext）默认 ≤100 行（关注度低，短更可能被完整读到）；Claude/Codex（hookSpecificOutput）默认 ≤200 行；分层比例 critical 60% / context 25% / recent 15%（默认，可配）；默认条数 = 每区 3~5 条（在预算内自然成立；调优由度量驱动，按预算原则而非条数定死）。core 按 adapterParams 读取，无声明用目标基线（≤200）
 6. **低噪声**：superseded 折叠为单行引用；重复去重
 7. **缓存友好**：稳定段（决策/目标）放前部、高频变化段（recent）放尾部——利于 prefix-cache（与 dsh frozen snapshot 同思路）
 8. **底座适配**：注入位置（系统侧/用户消息前缀）由适配器参数决定
@@ -88,7 +89,7 @@ SessionStart（可无采集）
 ```
 <thread_status session="121a...">
 <critical>
-{"decisions":[{"id":12,"status":"active","action":"follow","text":"状态卡用XML+JSON混合格式"},{"id":10,"status":"superseded","by":12}],"goals":[{"id":3,"status":"active","text":"二期批B落地"}]}
+{"decisions":[{"id":12,"status":"active","action":"follow","text":"状态卡用XML+JSON混合格式"},{"id":10,"status":"superseded","by":12}],"goals":[{"id":3,"status":"active","text":"二期落地"}]}
 </critical>
 <context>
 - [feedback] 不要纯markdown状态卡（correction）
@@ -139,17 +140,18 @@ SessionStart（可无采集）
 
 | 配置 | 默认 | 位置 |
 |---|---|---|
-| 采集 hooks | 全挂（异步） | `.qoder/settings.json` |
-| 状态卡注入 | 每轮 UserPromptSubmit | 同上 |
-| MCP server | stdio | `.qoder/settings.local.json` |
+| 采集 hooks（Qoder） | 全挂（异步） | `.qoder/settings.json` |
+| 状态卡注入（Qoder） | 每轮 UserPromptSubmit | 同上 |
+| MCP server（Qoder） | stdio | `.qoder/settings.local.json` |
+| 采集/注入/查询（dsh） | 插件订阅 `session/event` + `agent/pre-step` 注入 + 内嵌 MCP | dsh-thread 插件（`dsh plugin add dsh-thread`）；profile `cordis.patch.yml` MCP overlay |
 | Spill 阈值 | 4K | core governor 配置 |
 | 状态卡预算 | 200 行 | core state-card 配置 |
 | 压缩触发 | 底座默认（manual + auto 阈值） | 底座侧配置 |
-| THREAD_ROOT | `~/.thread/projects/<项目键>/events.db` + `~/.thread/structured.db` | 环境变量（演练时指向临时库，严禁写生产库） |
+| 存储根目录 | `~/.thread/`（`structured.db` 用户级结构化表 + `projects/<项目键>/events.db` 项目事件库） | `THREAD_ROOT` 环境变量（演练时指向临时根目录，严禁写生产库） |
 
 ## 6. 契约基线与适配度评估
 
-**原则**：契约默认值 ≠ 固定值。**Thread 目标基线 = 按 Thread 目标（保真优先、零 LLM、O(1)、无损）定义的理论最优值**，不是从 Qoder 实测推导；各适配器声明实际适配参数（实测调整）；core 按参数驱动。目标与实测的差距 = 适配度，产出适配度矩阵指导投入优先级。
+**原则**：契约默认值 ≠ 固定值。**Thread 目标基线 = 按 Thread 目标（保真优先、零 LLM、O(1)、无损）定义的理论最优值**；各适配器声明实际适配参数；core 按参数驱动。目标与适配参数的差距 = 适配度，产出适配度矩阵指导适配投入优先级。
 
 **目标基线（Thread 定义）**：
 - 捕获覆盖：事件全类（用户 / 回复 / 工具 / 压缩边界 / 会话生命周期）零遗漏
@@ -158,26 +160,26 @@ SessionStart（可无采集）
 - 压缩可见性：压缩边界可观测（checkpoint）+ 摘要可检索
 - 存储与预算：spill 阈值 / 状态卡预算按目标定（默认 4K / 200 行，可配）
 
-**适配度评估框架（五维 0~1，实测修正）**：
+**适配度评估框架（五维 0~1）**：
 
-| 维度 | Qoder | dsh | Claude（待验证） | Codex（待验证） |
+| 维度 | Qoder | dsh | Claude | Codex |
 |---|---|---|---|---|
-| 捕获覆盖 | hooks 全事件 ✅ 1.0 | session/event 一等 ✅ 1.0 | hooks 同构 ~0.9 | hooks/rules ~0.9 |
-| 注入保真 | hookSpecificOutput 不采纳 → 0.4（UserPromptSubmit 兜底） | inject() 原生 → 1.0（进 session log 已验证） | 待验证 | 待验证 |
-| 检索可达 | MCP ✅ 1.0 | MCP overlay（内嵌 server）✅ 1.0（`ctx.tools` 注册备用） | MCP ✅ 1.0 | MCP ✅ 1.0 |
-| 压缩可见性 | compact_checkpoint ✅ 1.0 | session/event 订阅 → 1.0（待验证） | PreCompact hook → 待验证 | 待验证 |
-| 注入位置可控 | 受限（additionalContext 语义） | 精确（pre-step / inject） | 待验证 | 待验证 |
+| 捕获覆盖 | hooks 全事件 | session/event 一等 | hooks 同构 | hooks/rules |
+| 注入保真 | additionalContext（UserPromptSubmit 兜底） | inject() 原生（系统侧） | — | — |
+| 检索可达 | MCP | MCP overlay（内嵌 server） | MCP | MCP |
+| 压缩可见性 | compact_checkpoint | session/event 订阅 | PreCompact hook | — |
+| 注入位置可控 | 受限（additionalContext 语义） | 精确（pre-step / inject） | — | — |
 
-**预期排序**：dsh ≥ Qoder > Claude ≈ Codex（适配器落地后修正）。产出：适配度矩阵 = 投入优先级输入（优先做适配度最高且受众最大的底座）。
+产出：适配度矩阵 = 适配投入优先级输入（优先适配度最高且受众最大的底座）。
 
 **参数驱动**：适配器声明 `adapterParams`（spill 阈值、状态卡预算、注入位置策略、幂等键来源）；core 读取，无声明用目标基线。
 
-## 7. 成本模型刷新
+## 7. 成本模型
 
-v1 §13 基于旧架构，包络升级后刷新（零 LLM 核心 + 状态卡预算 + 引用回拉）：
+核心路径零 LLM 调用，成本由状态卡注入与检索调用构成：
 
 - **每轮成本 = 状态卡注入 token（预算上限）+ 检索调用 token（模型侧，可选）**；核心路径无 LLM 调用
 - 状态卡预算默认 200 行 ≈ 每轮数百 token（目标基线，可配）；对照项 = 底座全量历史重放（随会话线性膨胀，压缩前可达数十万 token/轮）——**状态卡固定成本 vs 全量重放线性成本**
 - 存储：SQLite 一次性磁盘开销 + 增量（受存储治理源头控制）；无 API 调用费
 - 可选成本项（非核心）：embedding 检索 / 知识轨 provider（marm 等）——按需启用，默认关闭
-- 验证：价值主张第 7 条（成本节省）以 eval-compare.mjs 同任务前后 N 次中位数对比为新数据支撑；不预设结论，以度量为准
+- 验证：价值主张第 7 条（成本节省）以 eval-compare.mjs 同任务前后 N 次中位数对比为数据支撑；不预设结论，以度量为准
