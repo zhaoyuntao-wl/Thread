@@ -124,7 +124,6 @@
 ## 10. 底座与接入
 
 - **第一参考适配器**：Qoder CLI（hook 事件、上下文注入、MCP 客户端三项弱能力原生支持）。
-- **第二参考适配器（候选）**：Codewhale（Hmbown/CodeWhale，Rust / MIT）——hook 能力未验证，待冒烟调研后定级；缺项记差距 + 替代路径，不阻塞核心。
 - **dsh 适配器**：深度接入形态（原生插件订阅事件 + 注入 + 内嵌 MCP server），独立仓库 `dsh-plugin-thread` 维护。
 - 验证叙事**不依赖**任何底座"上下文差"的主观判断——验收标准是绝对标准（回归集对比 Claude Code 的公开 auto-compact 问题），非相对优劣。
 - **薄接入**：SMS 独立进程，通过 MCP 工具 + hooks 接入；底座只依赖三个弱能力（MCP 客户端 / hook 事件覆盖 / 每轮上下文注入），可互换。
@@ -148,7 +147,7 @@
 - **许可证**：MIT。
 - **技术栈**：TypeScript/Node；pnpm monorepo（`packages/core` + `packages/adapters/qoder-cli` + `packages/evals`），changesets 统一版本。
 - **仓库布局**：本仓库 = 通用内核 + Qoder 薄适配器 + 回归集；dsh 深度适配器在独立仓库 `dsh-plugin-thread`（一个包闭环：采集 + 注入 + 内嵌 MCP server）。
-- **适配器矩阵**：Qoder CLI（薄接入，内置本仓库）；dsh（深度接入，独立仓库）；Codewhale（候选）。
+- **适配器矩阵**：Qoder CLI（薄接入，内置本仓库）；dsh（深度接入，独立仓库）。
 
 ## 13. 成本模型（tokens / 缓存 / 调用次数）
 
