@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { deriveProjectKeyHash, ThreadStore } from "@thread/core";
+import { deriveProjectKeyHash, ThreadStore } from "@thread-memory/core";
 
 function findRepoRoot(): string {
   let dir = dirname(fileURLToPath(import.meta.url));

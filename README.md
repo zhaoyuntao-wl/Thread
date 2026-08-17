@@ -34,7 +34,7 @@ This repository:
 
 | Package | Description |
 |---|---|
-| `@thread/core` | Event pipeline, structured tables (goals/decisions/feedback), lineage graph, BM25 retrieval, session isolation |
+| `@thread-memory/core` | Event pipeline, structured tables (goals/decisions/feedback), lineage graph, BM25 retrieval, session isolation |
 | `@thread/adapter-qoder-cli` | Reference adapter for Qoder CLI (hooks ingestion, context injection, MCP query tool) |
 | `@thread/evals` | Regression suite: scenario-level fidelity checks, CI gate |
 
@@ -46,7 +46,7 @@ one-package closed loop: `session/event` capture + per-turn status-card injectio
 ## Quick start
 
 ```ts
-import { ThreadStore, applyAnalysis, buildStatusCard, queryMemory } from "@thread/core";
+import { ThreadStore, applyAnalysis, buildStatusCard, queryMemory } from "@thread-memory/core";
 
 const store = new ThreadStore({ eventsPath, structuredPath, projectKey });
 

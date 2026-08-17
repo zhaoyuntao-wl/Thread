@@ -1,4 +1,4 @@
-import type { DecisionStatus } from "@thread/core";
+import type { DecisionStatus } from "@thread-memory/core";
 
 export interface ScenarioTool {
   name: string;

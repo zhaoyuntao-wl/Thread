@@ -1,6 +1,6 @@
 import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { isAbsolute, relative, sep } from "node:path";
-import type { SessionEvent } from "@thread/core";
+import type { SessionEvent } from "@thread-memory/core";
 
 interface HookEvent {
   session_id?: string;

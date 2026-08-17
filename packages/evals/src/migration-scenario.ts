@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hashProjectKey, migrateSplit, ThreadStore } from "@thread/core";
+import { hashProjectKey, migrateSplit, ThreadStore } from "@thread-memory/core";
 import type { CheckResult, ScenarioReport } from "./harness.js";
 
 const OLD_SCHEMA = `CREATE TABLE events (

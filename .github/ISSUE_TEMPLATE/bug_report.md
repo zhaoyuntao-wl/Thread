@@ -19,7 +19,7 @@ What you expected, and what happened instead.
 - OS:
 - Node version:
 - pnpm version:
-- Thread package versions (`@thread/core` etc.):
+- Thread package versions (`@thread-memory/core` etc.):
 
 **Additional context**
 Logs (e.g. missed-recall logs), screenshots, or transcripts if relevant.

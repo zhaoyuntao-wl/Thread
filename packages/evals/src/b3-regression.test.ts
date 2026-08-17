@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyScopePriority, ThreadStore } from "@thread/core";
+import { applyScopePriority, ThreadStore } from "@thread-memory/core";
 
 let dir: string;
 let store: ThreadStore;

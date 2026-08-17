@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { THREAD_VERSION } from "@thread/core";
+import { THREAD_VERSION } from "@thread-memory/core";
 
-export { defaultPaths, threadRoot, ThreadPaths } from "@thread/core";
+export { defaultPaths, threadRoot, ThreadPaths } from "@thread-memory/core";
 
 export const adapterName = "qoder-cli";
 

@@ -1,4 +1,4 @@
-import { ThreadStore, buildStatusCard, deriveProjectKey, defaultPaths } from "@thread/core";
+import { ThreadStore, buildStatusCard, deriveProjectKey, defaultPaths } from "@thread-memory/core";
 import { readFileSync } from "node:fs";
 
 let raw;

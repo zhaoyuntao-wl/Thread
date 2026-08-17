@@ -1,4 +1,4 @@
-import { ThreadStore, queryMemory, queryEvents, queryStructured, THREAD_VERSION } from "@thread/core";
+import { ThreadStore, queryMemory, queryEvents, queryStructured, THREAD_VERSION } from "@thread-memory/core";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";

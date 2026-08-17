@@ -100,7 +100,7 @@ eventsDbPath     = join(root, "projects", deriveProjectKeyHash(cwd), "events.db"
 
 **模块归属**：迁移核心逻辑在 `packages/core/src/migrate.ts`（纯函数、可被 core 测试 import）；CLI 包装脚本为本地运维工具（一次性迁移用途，不随公开仓库分发）。
 
-**用法（core API）**：`import { migrateSplit, replayIncrement } from "@thread/core"`（脚本用法见 migrate.test.ts 用例）
+**用法（core API）**：`import { migrateSplit, replayIncrement } from "@thread-memory/core"`（脚本用法见 migrate.test.ts 用例）
 
 **流程**（migrate.ts）：
 1. 只读打开旧库；读全表数据。

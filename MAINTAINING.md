@@ -22,7 +22,7 @@ Every user-visible change ships with a changeset (`pnpm changeset`).
 5. Tag and create the GitHub Release from the generated `CHANGELOG.md` entries.
 6. Post-release smoke test: install each published package from a clean shell
    (`dsh plugin add dsh-thread`, then `npx dsh-thread` for the embedded MCP
-   server; `@thread/core` installs as a dependency). `dsh-thread` publishes from
+   server; `@thread-memory/core` installs as a dependency). `dsh-thread` publishes from
    its own repository ([dsh-plugin-thread](https://github.com/zhaoyuntao-wl/dsh-plugin-thread)).
 
 ## Breaking change policy

@@ -29,7 +29,7 @@ Thread 以独立进程运行。底座通过三个弱能力（MCP 客户端 / hoo
 
 | 包 | 说明 |
 |---|---|
-| `@thread/core` | 事件流水、结构化表（目标/决策/反馈）、血缘图、BM25 检索、会话隔离 |
+| `@thread-memory/core` | 事件流水、结构化表（目标/决策/反馈）、血缘图、BM25 检索、会话隔离 |
 | `@thread/adapter-qoder-cli` | Qoder CLI 参考适配器（hooks 采集、上下文注入、MCP 查询工具） |
 | `@thread/evals` | 回归集：场景级保真检查，CI 门禁 |
 
@@ -38,7 +38,7 @@ dsh 适配器（`dsh-thread`）在独立仓库：[dsh-plugin-thread](https://git
 ## 快速开始
 
 ```ts
-import { ThreadStore, applyAnalysis, buildStatusCard, queryMemory } from "@thread/core";
+import { ThreadStore, applyAnalysis, buildStatusCard, queryMemory } from "@thread-memory/core";
 
 const store = new ThreadStore({ eventsPath, structuredPath, projectKey });
 

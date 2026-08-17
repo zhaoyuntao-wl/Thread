@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyAnalysis, buildStatusCard, ThreadStore } from "@thread/core";
-import { queryEvents } from "@thread/core";
+import { applyAnalysis, buildStatusCard, ThreadStore } from "@thread-memory/core";
+import { queryEvents } from "@thread-memory/core";
 import type { CheckResult, ScenarioReport } from "./harness.js";
 
 export function runIsolationScenario(): ScenarioReport {

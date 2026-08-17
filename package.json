@@ -12,13 +12,13 @@
     "typecheck": "pnpm -r build && pnpm -r typecheck",
     "lint": "eslint .",
     "test": "vitest run",
-    "eval": "pnpm --filter @thread/core build && pnpm --filter @thread/evals build && node packages/evals/dist/eval-cli.js",
+    "eval": "pnpm --filter @thread-memory/core build && pnpm --filter @thread/evals build && node packages/evals/dist/eval-cli.js",
     "changeset": "changeset"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.0",
     "@thread/adapter-qoder-cli": "workspace:*",
-    "@thread/core": "workspace:*",
+    "@thread-memory/core": "workspace:*",
     "@types/node": "^24.0.0",
     "eslint": "^9.0.0",
     "typescript": "^5.5.0",

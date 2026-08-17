@@ -1,4 +1,4 @@
-import { ThreadStore, deriveProjectKey, defaultPaths, matchToolFeedback } from "@thread/core";
+import { ThreadStore, deriveProjectKey, defaultPaths, matchToolFeedback } from "@thread-memory/core";
 import { readFileSync } from "node:fs";
 
 // B⑥-② 反馈拦截（Qoder PreToolUse 同步 hook）：命中教训 → exit 2 阻断 + stderr 教训原文。

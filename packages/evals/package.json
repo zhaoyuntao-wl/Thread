@@ -1,6 +1,6 @@
 {
   "name": "@thread/evals",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Thread regression suite: long-task scenarios, fact-retention checks",
   "license": "MIT",
   "type": "module",
@@ -21,7 +21,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@thread/core": "workspace:*"
+    "@thread-memory/core": "workspace:*"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

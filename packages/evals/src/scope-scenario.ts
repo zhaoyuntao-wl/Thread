@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyTurn, ThreadStore } from "@thread/core";
+import { applyTurn, ThreadStore } from "@thread-memory/core";
 import type { CheckResult, ScenarioReport } from "./harness.js";
 
 export function runScopeFilterScenario(): ScenarioReport {

@@ -1,4 +1,4 @@
-import { ThreadStore, applyAnalysis, deriveProjectKey } from "@thread/core";
+import { ThreadStore, applyAnalysis, deriveProjectKey } from "@thread-memory/core";
 import { defaultPaths, extractLastAssistantTurn, parseHookEvent } from "@thread/adapter-qoder-cli";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";

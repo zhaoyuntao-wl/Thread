@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ThreadStore } from "@thread/core";
+import { ThreadStore } from "@thread-memory/core";
 import { runAll } from "./harness.js";
 import { SCENARIOS } from "./scenarios.js";
 import { runScopeFilterScenario } from "./scope-scenario.js";

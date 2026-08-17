@@ -9,7 +9,7 @@ import {
   applyAnalysis,
   buildStatusCard,
   queryMemory,
-} from "@thread/core";
+} from "@thread-memory/core";
 
 const dir = mkdtempSync(join(tmpdir(), "thread-example-"));
 const projectKey = "demo-project";

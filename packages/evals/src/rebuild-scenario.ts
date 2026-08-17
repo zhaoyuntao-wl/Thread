@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyAnalysis, applyTurn, ThreadStore } from "@thread/core";
-import type { TurnInput } from "@thread/core";
+import { applyAnalysis, applyTurn, ThreadStore } from "@thread-memory/core";
+import type { TurnInput } from "@thread-memory/core";
 import type { CheckResult, ScenarioReport } from "./harness.js";
 
 type RebuildTurn = TurnInput;

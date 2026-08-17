@@ -1,4 +1,4 @@
-# @thread/core API Reference
+# @thread-memory/core API Reference
 
 Thread core: base-agnostic session memory for coding agents — lossless event
 pipeline, structured tables (goals/decisions/feedback), lineage graph, BM25 retrieval.
@@ -9,7 +9,7 @@ in `dist/*.d.ts`; this document summarizes the stable public surface.
 ## Quick start
 
 ```ts
-import { ThreadStore, applyAnalysis, buildStatusCard, queryMemory } from "@thread/core";
+import { ThreadStore, applyAnalysis, buildStatusCard, queryMemory } from "@thread-memory/core";
 
 const store = new ThreadStore({ eventsPath, structuredPath, projectKey });
 

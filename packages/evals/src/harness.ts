@@ -1,4 +1,4 @@
-import { applyTurn, buildStatusCard, queryMemory, ThreadStore } from "@thread/core";
+import { applyTurn, buildStatusCard, queryMemory, ThreadStore } from "@thread-memory/core";
 import type { Scenario, ScenarioExpectation } from "./scenarios.js";
 
 export interface CheckResult {
