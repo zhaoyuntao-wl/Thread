@@ -1,5 +1,4 @@
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import type { UserStore } from "./store.js";
 
 export interface User {
   id: string;
@@ -114,7 +113,6 @@ export interface LoginServiceOptions {
   maxAttempts?: number;
   lockoutMs?: number;
   blacklist?: TokenBlacklist;
-  store?: UserStore;
 }
 
 export class LoginService {
@@ -123,7 +121,6 @@ export class LoginService {
   private readonly maxAttempts: number;
   private readonly lockoutMs: number;
   private readonly blacklist: TokenBlacklist;
-  private readonly store: UserStore | undefined;
 
   constructor(
     private readonly secret: string,
@@ -132,10 +129,6 @@ export class LoginService {
     this.maxAttempts = options.maxAttempts ?? 5;
     this.lockoutMs = options.lockoutMs ?? 15 * 60 * 1000;
     this.blacklist = options.blacklist ?? new TokenBlacklist();
-    this.store = options.store;
-    if (this.store) {
-      for (const user of this.store.load()) this.users.set(user.username, user);
-    }
   }
 
   register(username: string, password: string): RegisterResult {
@@ -149,7 +142,6 @@ export class LoginService {
       createdAt: new Date().toISOString(),
     };
     this.users.set(username, user);
-    this.persist();
     return user;
   }
 
@@ -190,12 +182,7 @@ export class LoginService {
     if (newPassword.length < MIN_PASSWORD_LENGTH) return { ok: false, reason: "weak-password" };
     user.passwordHash = hashPassword(newPassword);
     this.failed.delete(username);
-    this.persist();
     return { ok: true };
-  }
-
-  private persist(): void {
-    this.store?.save([...this.users.values()]);
   }
 
   private failures(username: string): { count: number; firstAt: number } | undefined {
