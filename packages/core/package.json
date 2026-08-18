@@ -24,6 +24,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@node-rs/jieba": "^2.0.2",
     "better-sqlite3": "^12.0.0"
   },
   "devDependencies": {

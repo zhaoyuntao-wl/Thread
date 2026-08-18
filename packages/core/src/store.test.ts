@@ -84,6 +84,41 @@ describe("ThreadStore", () => {
     expect(after).toBe(before);
   });
 
+  // 0-e 中文检索升级验收：jieba 词级分词 + 全 OR + BM25（替代原单字 AND，缺一字即 miss）
+  it("中文查询词级命中（登录方案 → 命中含「登录/方案」正文）", () => {
+    store.append({
+      session_id: "s-cn",
+      kind: "user_message",
+      ts: "2026-08-18T00:00:00.000Z",
+      body: "登录方案改成JWT，部署到周五",
+    });
+    const hits = store.search("登录方案");
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits.some((h) => h.session_id === "s-cn")).toBe(true);
+  });
+
+  it("2 字词查询正常（「登录」是完整 token，不再依赖 trigram）", () => {
+    const hits = store.search("登录");
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits.some((h) => h.session_id === "s-cn")).toBe(true);
+  });
+
+  it("部分词命中仍召回（词级 OR：只记得「部署」也能召回）", () => {
+    const hits = store.search("部署时间");
+    expect(hits.some((h) => h.session_id === "s-cn")).toBe(true);
+  });
+
+  it("短句子串查询（「怎么定的」→ 命中决策上下文）", () => {
+    store.append({
+      session_id: "s-cn",
+      kind: "user_message",
+      ts: "2026-08-18T00:00:05.000Z",
+      body: "决策：开发基线用标准模式为主",
+    });
+    const hits = store.search("开发基线怎么定的");
+    expect(hits.some((h) => h.session_id === "s-cn")).toBe(true);
+  });
+
   it("filters search by session and hides isolated content from others", () => {
     // 未隔离内容跨会话可见（跨会话继承检索语义）
     const visible = store.search("hello", { sessionId: "s2" });

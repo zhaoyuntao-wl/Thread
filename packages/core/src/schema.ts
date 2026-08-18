@@ -1,6 +1,19 @@
 import type Database from "better-sqlite3";
+import type { EventKind } from "./events.js";
+import { segment } from "./segment.js";
+import { isIndexable } from "./governor.js";
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
+
+// FTS 表 DDL（0-e 定案：jieba 预分词 shadow 列 body_seg，unicode61 按空格分词）。
+// contentless（content=''）：FTS 仅存分词索引，不映射 content 表列（body_seg 在 events 表不存在，
+// 外部内容表模式会报 no such column）；查询永远 JOIN events 取原文，FTS 列只用于 MATCH。
+// 单一来源：store.ts 的 EVENTS_SCHEMA 与 v5 迁移重建共用此 DDL，避免两处漂移。
+export const EVENTS_FTS_DDL = `CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(
+  body_seg,
+  content='',
+  tokenize='unicode61'
+);`;
 
 export type SchemaKind = "events" | "structured";
 
@@ -31,6 +44,21 @@ export function ensureSchema(db: Database.Database, kind: SchemaKind): void {
       if (!eventsCols.has("isolation")) db.exec(`ALTER TABLE events ADD COLUMN isolation INTEGER NOT NULL DEFAULT 0`);
       db.exec(`CREATE INDEX IF NOT EXISTS idx_events_project ON events(project_key, ts)`);
       db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_events_origin ON events(origin) WHERE origin IS NOT NULL`);
+
+      // v5（0-e 定案）：FTS 从 unicode61(body 单字) 重建为 body_seg(jieba 预分词)。
+      // fts5 虚拟表不支持 ALTER 加列 → DROP + 重建 + 全量回填（events 原文表不受影响）。
+      const ftsCols = cols("events_fts");
+      if (!ftsCols.has("body_seg")) {
+        db.exec(`DROP TABLE IF EXISTS events_fts`);
+        db.exec(EVENTS_FTS_DDL);
+        const rows = db.prepare(`SELECT id, kind, body FROM events`).all() as Array<{ id: number; kind: EventKind; body: string }>;
+        const ins = db.prepare(`INSERT INTO events_fts(rowid, body_seg) VALUES (?, ?)`);
+        for (const r of rows) {
+          if (isIndexable(r.kind)) {
+            ins.run(r.id, segment(r.body));
+          }
+        }
+      }
 
       db.exec(`CREATE TABLE IF NOT EXISTS spills (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

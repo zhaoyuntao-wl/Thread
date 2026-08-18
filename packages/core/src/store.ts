@@ -4,7 +4,8 @@ import { MAX_BODY_CHARS, truncateBody } from "./events.js";
 import type { EventKind, SessionEvent } from "./events.js";
 import { assertTransition } from "./state.js";
 import type { DecisionStatus, GoalStatus } from "./state.js";
-import { ensureSchema } from "./schema.js";
+import { ensureSchema, EVENTS_FTS_DDL } from "./schema.js";
+import { segment, segmentQuery } from "./segment.js";
 import { SpillPolicy, isIndexable } from "./governor.js";
 
 export const EVENTS_SCHEMA = `
@@ -25,12 +26,7 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, seq);
 
-CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(
-  body,
-  content='events',
-  content_rowid='id',
-  tokenize='unicode61'
-);
+${EVENTS_FTS_DDL}
 
 CREATE TABLE IF NOT EXISTS episodes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -480,7 +476,7 @@ export class ThreadStore {
       }
 
       if (isIndexable(event.kind)) {
-        this.eventsDb.prepare(`INSERT INTO events_fts(rowid, body) VALUES (?, ?)`).run(eventId.id, cjkSpace(storedBody));
+        this.eventsDb.prepare(`INSERT INTO events_fts(rowid, body_seg) VALUES (?, ?)`).run(eventId.id, segment(storedBody));
       }
 
       const eventMeta = event.meta as Record<string, unknown> | undefined;
@@ -535,7 +531,8 @@ export class ThreadStore {
     } else {
       sql += ` AND e.isolation = 0`;
     }
-    sql += ` ORDER BY score LIMIT ?`;
+    // bm25 负值越小越相关（ASC）；时间衰减 = 同分近期优先（ts DESC 二级排序，零成本先上，深调留 B⑤ 度量）
+    sql += ` ORDER BY score ASC, e.ts DESC LIMIT ?`;
     params.push(opts.limit ?? 20);
     return this.eventsDb.prepare(sql).all(...params) as unknown as SearchHit[];
   }
@@ -1038,11 +1035,13 @@ function isToolKind(kind: EventKind): boolean {
 }
 
 function toFtsQuery(query: string): string {
-  const tokens = cjkSpace(query).split(/\s+/).filter(Boolean);
+  const tokens = segmentQuery(query);
   if (tokens.length === 0) {
     return "";
   }
-  return tokens.map((t) => `"${t.replaceAll('"', '""')}"`).join(" AND ");
+  // 0-e 微调：全 OR + BM25 排序（召回优先，精度交给 bm25 打分与时间衰减），
+  // 替代原单字 AND（"登录方案" → "登" AND "录" AND "方" AND "案"，缺一字即 miss）。
+  return tokens.map((t) => `"${t.replaceAll('"', '""')}"`).join(" OR ");
 }
 
 const EPISODE_SUMMARY_CHARS = 4000;
@@ -1057,13 +1056,6 @@ function safeParse(text: string): unknown {
 
 function sha256Hex(text: string): string {
   return createHash("sha256").update(text).digest("hex");
-}
-
-function cjkSpace(text: string): string {
-  return text
-    .replace(/([\u3400-\u9fff\uf900-\ufaff])/g, " $1 ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 // 分层优先级裁决（B③）：同事实（归一化 text）跨层级出现时保留最高优先级 会话内>项目>用户>全局
