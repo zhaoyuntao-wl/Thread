@@ -61,8 +61,7 @@ describe("analyzeTurn", () => {
 
   it("treats preference sentences as feedback, not revocation", () => {
     const analysis = analyzeTurn({ user_msg: "以后不要用 jQuery" });
-    expect(analysis.decisions).toEqual([]);
-    expect(analysis.feedback).toEqual([
+    expect(analysis.decisions).toEqual([]);    expect(analysis.feedback).toEqual([
       { text: "以后不要用 jQuery", kind: "correction" },
     ]);
     const pref = analyzeTurn({ user_msg: "以后优先用 pnpm" });
@@ -160,6 +159,28 @@ describe("applyTurn", () => {
     const applied = applyAnalysis(store, "s2", { assistant_msg: "我记下了用 pnpm 管理依赖" }, { sourceEvent: ev.id });
     expect(applied.decisions).toHaveLength(1);
     expect(store.getRecentEvents("s2", 100).length).toBe(before + 1);
+  });
+
+  it("机制1：用户侧决策宣告 → propose 而非 feedback（§1.5.3c）", () => {
+    const a1 = analyzeTurn({ user_msg: "开发基线就定为：标准模式为主" });
+    expect(a1.decisions).toEqual([{ action: "propose", text: "标准模式为主" }]);
+    expect(a1.feedback).toEqual([]);
+    const a2 = analyzeTurn({ user_msg: "以后就在创造模式开发" });
+    expect(a2.decisions).toEqual([{ action: "propose", text: "创造模式开发" }]);
+  });
+
+  it("机制1：系统提醒/指令注入不抽结构化行（噪声过滤）", () => {
+    const a = analyzeTurn({ user_msg: "<system-reminder>\nUpdated instructions from: AGENTS.md\nThis file changed" });
+    expect(a.decisions).toEqual([]);
+    expect(a.feedback).toEqual([]);
+    expect(a.goals).toEqual([]);
+  });
+
+  it("机制1：偏好语仍走 feedback（决策 vs 偏好区分）", () => {
+    const a = analyzeTurn({ user_msg: "以后不要用 jQuery" });
+    expect(a.decisions).toEqual([]);
+    expect(a.feedback).toHaveLength(1);
+    expect(a.feedback[0].kind).toBe("correction");
   });
 });
 
