@@ -61,6 +61,18 @@ class ThreadStore {
 |---|---|
 | `getActiveDecisionsMerged(sessionId, projectKey?)` / `getActiveGoalsMerged(...)` / `getFeedbackMerged(...)` | Merge current session + same project + global rows. |
 | `applyScopePriority(rows)` | Layered priority: session > project > global, normalized dedup. |
+| `getRecentDecisionsMerged(sessionId, projectKey?, limit?)` | Project-level recent decisions ordered by `updated_at` desc (drives the decision-change situation). |
+
+### Light-confirm candidates (pending)
+
+| Method | Description |
+|---|---|
+| `addPendingCandidate({sessionId, text, kind, sourceEvent?, projectKey?, isolation?})` | Stage a coarse-screened candidate (decision) without touching the formal tables. |
+| `listPendingCandidates({sessionId?, projectKey?})` | Pending (unconfirmed) candidates, newest first. |
+| `confirmCandidate(id)` / `ignoreCandidate(id)` | Resolve a candidate: confirm (promotable to a formal decision) or discard. |
+| `markCandidatePrompted(id)` | Bump the prompt counter (prompt decay control). |
+| `expireCandidates({before, projectKey?})` | Auto-ignore candidates idle past the timeout. |
+| `pendingCount({sessionId?, projectKey?})` | Number of unconfirmed candidates (status-card count line). |
 
 ### Retrieval
 
@@ -80,19 +92,19 @@ class ThreadStore {
 |---|---|---|
 | `truncateBody(body, maxChars?)` / `eventKindCounts(db)` | events | Body truncation; event counts by kind. |
 | `assertTransition(from, to)` / `canTransition(from, to)` | state | Decision/goal status transitions. |
-| `analyzeTurn(input)` / `applyAnalysis(store, sessionId, input, opts?)` | light-confirm | Deterministic lightweight confirmation (zero LLM): user messages → goals, assistant replies → decisions/feedback. |
+| `analyzeTurn(input)` / `applyAnalysis(store, sessionId, input, opts?)` | light-confirm | Deterministic lightweight confirmation (zero LLM): user decision declarations → pending candidates; assistant declarations → decisions; preferences → feedback. |
 | `queryMemory(store, query, opts?)` | query | Semantic retrieval (BM25) with episode-summary fallback. |
 | `queryEvents(store, opts)` | query | Structured retrieval: kind filter, time range, ordering, counts. |
 | `SpillPolicy` / `INDEXABLE_KINDS` | governor | Body spill policy (4K threshold) and FTS indexable kinds. |
 | `deriveProjectKey(cwd)` / `deriveProjectKeyHash(cwd)` | project-key | Normalized git-root project identity. |
 | `threadRoot()` / `defaultPaths(cwd?)` | paths | Dual-DB paths (`THREAD_ROOT` overridable). |
-| `buildStatusCard(store, opts)` | status-card | Per-turn status card (merged views + budget tiers; `opts.isolated: true` shows only the own session). |
+| `buildStatusCard(store, opts)` / `detectSituation(store, {sessionId, turn, projectKey?})` | status-card | Per-turn status card as a situational router (`situation: normal / new-session / post-compact / decision-change`); deterministic situation detection drives the relay blocks. |
 | `migrateSplit(...)` / `replayIncrement(...)` | migrate | Single-DB → dual-DB migration core. |
-| `SCHEMA_VERSION` | schema | Schema version constant (current: 3 — isolation columns + session_isolation table). |
+| `SCHEMA_VERSION` | schema | Schema version constant (current: 4 — isolation + pending_candidates). |
 | `THREAD_VERSION` | index | Version constant. |
 
 ## Types
 
-`SessionEvent`, `EventKind`, `Goal`, `Decision`, `FeedbackRow`, `AppendOptions`
+`SessionEvent`, `EventKind`, `Goal`, `Decision`, `FeedbackRow`, `PendingCandidate`, `AppendOptions`
 (`isolation?: boolean`), `StructuredWriteOptions`, `Episode`,
 `LineageNeighbor`, `SearchHit`, `ThreadPaths`.

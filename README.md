@@ -14,6 +14,12 @@ on demand — goals, decisions, feedback, and lineage stay intact across long ta
 - **No repeated questions**: already-answered information is recalled on demand.
 - **Bounded context**: per-turn cost stays O(1) with a resident status card plus
   on-demand retrieval, instead of replaying full history.
+- **Situational relay**: the status card becomes a situational router — new sessions
+  auto-continue from prior work, compaction boundaries re-anchor goals, and recent
+  decisions are relayed so the model never acts on stale state.
+- **Confirmed decisions**: user decision statements are staged as candidates and
+  surfaced via a dialog (confirm / cancel / postpone) — nothing unconfirmed ever
+  becomes a formal decision.
 
 ## Architecture
 
