@@ -3,6 +3,9 @@ import { applyScopePriority } from "./store.js";
 
 // 状态卡构建（B③/B④ 共用）：合并视图 + 分层优先级 + 预算分档 + 词汇边界（不出现 session/project/scope 等机制词）。
 // 注入隔离：内容 = 数据非指令（状态卡是用户可理解的事实 + 低频冲突询问）。
+// 情境化传达（§1.5，P0 情境 C+A）：程序判定情境 → 恰时传达对应记忆块，用户无感。
+
+export type StatusCardSituation = "normal" | "new-session" | "post-compact";
 
 export interface BuildStatusCardOptions {
   sessionId: string;
@@ -12,6 +15,8 @@ export interface BuildStatusCardOptions {
   isolated?: boolean;
   // 首轮档（外部借鉴①：会话首请求即锚定轨迹，首轮给全量锚点，后续维持轻量 O(1)）
   firstTurn?: boolean;
+  // 情境判定（§1.5：程序判定，不靠模型自觉）：new-session=新会话续接 / post-compact=压缩边界回归
+  situation?: StatusCardSituation;
 }
 
 export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions): string {
@@ -23,6 +28,7 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
   const listLimit = firstTurn ? 8 : 5;
   const feedbackLimit = firstTurn ? 8 : 5;
   const isolated = opts.isolated ?? false;
+  const situation = opts.situation ?? "normal";
 
   let goals: Array<{ id: number; text: string; scope?: string | null; session_id: string }> = [];
   let decisions: Array<{ id: number; text: string; scope?: string | null; session_id: string }> = [];
@@ -49,7 +55,33 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
 
   const lines: string[] = [];
   lines.push(isolated ? "[Thread 会话记忆状态卡]（本会话已隔离，内容仅自己可见）" : "[Thread 会话记忆状态卡]");
-  if (goals.length > 0) {
+
+  // 情境 A：新会话续接块（§1.5，P0）——开场即知上次上下文，无需用户显式提醒
+  if (situation === "new-session" && !isolated) {
+    const carryGoals = goals.length > 0 ? `目标：${goals.map((g) => g.text.slice(0, 60)).join("；")}` : null;
+    const carryDecisions = decisions.length > 0 ? `生效决策：${decisions.map((d) => d.text.slice(0, 60)).join("；")}` : null;
+    if (carryGoals || carryDecisions) {
+      lines.push("会话接续（来自之前的工作）:");
+      if (carryGoals) lines.push(`  - ${carryGoals}`);
+      if (carryDecisions) lines.push(`  - ${carryDecisions}`);
+      lines.push("  基于以上继续，不要重新开始；需要细节时用 query_session_memory 查询。");
+    }
+  }
+
+  // 情境 C：压缩回归块（§1.5，P0）——压缩边界后目标不漂移
+  if (situation === "post-compact" && !isolated) {
+    if (goals.length > 0) {
+      lines.push("压缩后回归（目标保持）:");
+      goals
+        .slice()
+        .reverse()
+        .slice(0, listLimit)
+        .forEach((g) => lines.push(`  - ${g.text.slice(0, 120)}${shareMark(g)} #${g.id}`));
+      lines.push("  主线目标不变，被压缩掉的细节用 query_session_memory 回拉。");
+    }
+  }
+
+  if (goals.length > 0 && situation !== "post-compact") {
     lines.push("目标:");
     goals
       .slice()
@@ -57,7 +89,7 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
       .slice(0, listLimit)
       .forEach((g, i) => lines.push(`  ${i + 1}. ${g.text.slice(0, 120)}${shareMark(g)} #${g.id}`));
   }
-  if (decisions.length > 0) {
+  if (decisions.length > 0 && situation !== "new-session") {
     lines.push("决策（生效中）:");
     decisions.slice(0, listLimit).forEach((d, i) => lines.push(`  ${i + 1}. ${d.text.slice(0, 120)}${shareMark(d)} #${d.id}`));
   }
@@ -79,4 +111,27 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
   lines.push("收到 隔离//unisolate//thread-publish 单命令时，只回一句状态确认，不展开思考。");
 
   return lines.slice(0, budgetLines).join("\n");
+}
+
+// 情境判定（程序确定性，§1.5）：供适配器在 pre-step 调用。
+// new-session = 首轮且会话已有历史（非全新）；post-compact = 最近事件是压缩 checkpoint。
+export function detectSituation(
+  store: ThreadStore,
+  opts: { sessionId: string; turn: number; projectKey?: string },
+): StatusCardSituation {
+  if (opts.turn === 1) {
+    const recent = store.getRecentEvents(opts.sessionId, 1);
+    if (recent.length > 0) {
+      return "new-session";
+    }
+  }
+  try {
+    const recent = store.getRecentEvents(opts.sessionId, 3);
+    if (recent.some((e) => e.kind === "compact_checkpoint")) {
+      return "post-compact";
+    }
+  } catch {
+    // 判定失败降级为 normal，不阻塞注入
+  }
+  return "normal";
 }

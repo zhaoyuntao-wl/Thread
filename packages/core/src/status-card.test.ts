@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildStatusCard } from "./status-card.js";
+import { buildStatusCard, detectSituation } from "./status-card.js";
 import { ThreadStore } from "./store.js";
 
 let dir: string;
@@ -56,5 +56,56 @@ describe("buildStatusCard（外部借鉴 ①③：首轮加权 + 收束语）", 
     expect(card).toMatch(/决策 1 #\d+/);
     expect(card).toMatch(/目标 \d+ #\d+/);
     expect(card).toMatch(/偏好 1 #\d+/);
+  });
+});
+
+describe("detectSituation（§1.5 P0 情境判定，程序确定性）", () => {
+  it("首轮且会话有历史 → new-session", () => {
+    expect(detectSituation(store, { sessionId: "s1", turn: 1 })).toBe("new-session");
+  });
+
+  it("首轮且会话无历史（全新会话）→ normal", () => {
+    expect(detectSituation(store, { sessionId: "brand-new", turn: 1 })).toBe("normal");
+  });
+
+  it("最近事件含 compact_checkpoint → post-compact", () => {
+    store.append({
+      session_id: "s1",
+      kind: "compact_checkpoint",
+      ts: new Date().toISOString(),
+      body: "摘要全文",
+    });
+    expect(detectSituation(store, { sessionId: "s1", turn: 5 })).toBe("post-compact");
+  });
+
+  it("无 checkpoint → normal", () => {
+    expect(detectSituation(store, { sessionId: "brand-new", turn: 5 })).toBe("normal");
+  });
+});
+
+describe("buildStatusCard 情境传达块（§1.5 P0 C+A）", () => {
+  it("new-session 情境出现会话接续块（含沿用决策）", () => {
+    const card = buildStatusCard(store, { sessionId: "s1", projectKey: "card-proj", situation: "new-session" });
+    expect(card).toContain("会话接续");
+    expect(card).toContain("生效决策");
+    expect(card).toContain("基于以上继续");
+  });
+
+  it("post-compact 情境出现压缩回归块（目标重述）", () => {
+    const card = buildStatusCard(store, { sessionId: "s1", projectKey: "card-proj", situation: "post-compact" });
+    expect(card).toContain("压缩后回归");
+    expect(card).toContain("主线目标不变");
+  });
+
+  it("normal 情境不出现传达块（避免每轮塞指令）", () => {
+    const card = buildStatusCard(store, { sessionId: "s1", projectKey: "card-proj", situation: "normal" });
+    expect(card).not.toContain("会话接续");
+    expect(card).not.toContain("压缩后回归");
+  });
+
+  it("隔离 + new-session 组合不出现续接块（隔离不继承）", () => {
+    const card = buildStatusCard(store, { sessionId: "s1", projectKey: "card-proj", situation: "new-session", isolated: true });
+    expect(card).not.toContain("会话接续");
+    expect(card).toContain("本会话已隔离");
   });
 });
