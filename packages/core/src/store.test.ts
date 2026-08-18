@@ -119,6 +119,50 @@ describe("ThreadStore", () => {
     expect(hits.some((h) => h.session_id === "s-cn")).toBe(true);
   });
 
+  // 0-e 定案第 5 条（trigram 子串召回兜底）：主路径 jieba 词级 0 命中时，
+  // 查询是正文 token 的连续子串（"用户只记得半句"）→ body_tri 短语匹配兜底召回
+  it("半句子串兜底召回（主路径 0 命中 → trigram 命中「eepseek」∈ deepseek）", () => {
+    store.append({
+      session_id: "s-frag",
+      kind: "user_message",
+      ts: "2026-08-18T00:10:00.000Z",
+      body: "模型选定 deepseek-v4-flash 作为主力，事件存储用 better-sqlite3",
+    });
+    const hits = store.search("eepseek");
+    expect(hits.some((h) => h.session_id === "s-frag")).toBe(true);
+  });
+
+  it("半句子串兜底保持主路径语义（整词仍走 body_seg BM25）", () => {
+    const hits = store.search("deepseek");
+    expect(hits.some((h) => h.session_id === "s-frag")).toBe(true);
+    expect(hits[0].session_id).toBe("s-frag");
+  });
+
+  it("半句子串兜底遵守隔离语义（其他会话不可见，本会话可见）", () => {
+    store.append(
+      {
+        session_id: "s-frag-iso",
+        kind: "user_message",
+        ts: "2026-08-18T00:11:00.000Z",
+        body: "孤岛验证 tokenizer-v5 半句隔离",
+      },
+      { isolation: true },
+    );
+    const hidden = store.search("okenizer", { sessionId: "s2" });
+    expect(hidden.some((h) => h.session_id === "s-frag-iso")).toBe(false);
+    const self = store.search("okenizer", { sessionId: "s-frag-iso" });
+    expect(self.some((h) => h.session_id === "s-frag-iso")).toBe(true);
+  });
+
+  it("trigram 兜底 <3 字符查询返回空；≥3 字符子串正常命中", () => {
+    // "ee" 不足 3 字符（trigram 需 ≥3）→ 空（不报错）
+    expect(store.search("ee")).toEqual([]);
+    // "eep" 恰好 3 字符且是 deepseek 子串 → 命中
+    expect(store.search("eep")).not.toEqual([]);
+    // 中文 2 字词走主路径词级命中
+    expect(store.search("登录")).not.toEqual([]);
+  });
+
   it("filters search by session and hides isolated content from others", () => {
     // 未隔离内容跨会话可见（跨会话继承检索语义）
     const visible = store.search("hello", { sessionId: "s2" });

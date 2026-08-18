@@ -4,7 +4,7 @@ import { MAX_BODY_CHARS, truncateBody } from "./events.js";
 import type { EventKind, SessionEvent } from "./events.js";
 import { assertTransition } from "./state.js";
 import type { DecisionStatus, GoalStatus } from "./state.js";
-import { ensureSchema, EVENTS_FTS_DDL } from "./schema.js";
+import { ensureSchema, EVENTS_FTS_DDL, EVENTS_FTS_TRI_DDL } from "./schema.js";
 import { segment, segmentQuery } from "./segment.js";
 import { SpillPolicy, isIndexable } from "./governor.js";
 
@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, seq);
 
 ${EVENTS_FTS_DDL}
+
+${EVENTS_FTS_TRI_DDL}
 
 CREATE TABLE IF NOT EXISTS episodes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -477,6 +479,7 @@ export class ThreadStore {
 
       if (isIndexable(event.kind)) {
         this.eventsDb.prepare(`INSERT INTO events_fts(rowid, body_seg) VALUES (?, ?)`).run(eventId.id, segment(storedBody));
+        this.eventsDb.prepare(`INSERT INTO events_fts_tri(rowid, body) VALUES (?, ?)`).run(eventId.id, storedBody);
       }
 
       const eventMeta = event.meta as Record<string, unknown> | undefined;
@@ -515,15 +518,31 @@ export class ThreadStore {
   }
 
   search(query: string, opts: { limit?: number; sessionId?: string } = {}): SearchHit[] {
-    const ftsQuery = toFtsQuery(query);
-    if (!ftsQuery) {
+    const hits = this.runFtsSearch(query, opts, "seg");
+    if (hits.length > 0) {
+      return hits;
+    }
+    // 0-e 定案第 5 条（trigram 子串召回兜底）：主路径 0 命中（jieba 分词失败 /
+    // "用户只记得半句"——查询是正文 token 的连续子串）时，用 trigram 表
+    // 短语匹配召回连续字符序列；隔离/会话过滤语义与主路径一致。
+    return this.runFtsSearch(query, opts, "tri");
+  }
+
+  private runFtsSearch(
+    query: string,
+    opts: { limit?: number; sessionId?: string },
+    kind: "seg" | "tri",
+  ): SearchHit[] {
+    const match = kind === "tri" ? toTrigramMatch(query) : toFtsMatch(query);
+    if (!match) {
       return [];
     }
+    const ftsTable = kind === "tri" ? "events_fts_tri" : "events_fts";
     let sql = `
-      SELECT e.id, e.session_id, e.kind, e.ts, e.seq, e.body, e.truncated, bm25(events_fts) AS score
-      FROM events_fts f JOIN events e ON e.id = f.rowid
-      WHERE events_fts MATCH ?`;
-    const params: unknown[] = [ftsQuery];
+      SELECT e.id, e.session_id, e.kind, e.ts, e.seq, e.body, e.truncated, bm25(${ftsTable}) AS score
+      FROM ${ftsTable} f JOIN events e ON e.id = f.rowid
+      WHERE ${ftsTable} MATCH ?`;
+    const params: unknown[] = [match];
     if (opts.sessionId) {
       // 当前会话可见自己的全部内容（含隔离），其他会话只见未隔离行
       sql += ` AND (e.session_id = ? OR e.isolation = 0)`;
@@ -531,8 +550,13 @@ export class ThreadStore {
     } else {
       sql += ` AND e.isolation = 0`;
     }
-    // bm25 负值越小越相关（ASC）；时间衰减 = 同分近期优先（ts DESC 二级排序，零成本先上，深调留 B⑤ 度量）
-    sql += ` ORDER BY score ASC, e.ts DESC LIMIT ?`;
+    if (kind === "tri") {
+      // 兜底路径：trigram 打分区分度差，纯时间衰减排序（近期优先）
+      sql += ` ORDER BY e.ts DESC LIMIT ?`;
+    } else {
+      // bm25 负值越小越相关（ASC）；时间衰减 = 同分近期优先（ts DESC 二级排序，零成本先上，深调留 B⑤ 度量）
+      sql += ` ORDER BY score ASC, e.ts DESC LIMIT ?`;
+    }
     params.push(opts.limit ?? 20);
     return this.eventsDb.prepare(sql).all(...params) as unknown as SearchHit[];
   }
@@ -1034,14 +1058,25 @@ function isToolKind(kind: EventKind): boolean {
   return kind === "tool_call" || kind === "tool_result";
 }
 
-function toFtsQuery(query: string): string {
+// 主路径 MATCH 表达式：全 OR + BM25 排序（召回优先，精度交给 bm25 打分与时间衰减）。
+// 主表 events_fts 只有 body_seg 一列，无需列限定。
+function toFtsMatch(query: string): string {
   const tokens = segmentQuery(query);
   if (tokens.length === 0) {
     return "";
   }
-  // 0-e 微调：全 OR + BM25 排序（召回优先，精度交给 bm25 打分与时间衰减），
-  // 替代原单字 AND（"登录方案" → "登" AND "录" AND "方" AND "案"，缺一字即 miss）。
   return tokens.map((t) => `"${t.replaceAll('"', '""')}"`).join(" OR ");
+}
+
+// trigram 兜底 MATCH 表达式（0-e 定案第 5 条）：查询折叠为连续字符序列（去空白/标点），
+// trigram 对 ≥3 字符短语做子串匹配——"用户只记得半句"时主路径 0 命中由它召回。
+// 兜底表 events_fts_tri 的列名是 body，MATCH 直接给短语即可（表内唯一列）。
+function toTrigramMatch(query: string): string {
+  const collapsed = query.replace(/\s+/g, "").replace(/[^\p{L}\p{N}]+/gu, "");
+  if (collapsed.length < 3) {
+    return "";
+  }
+  return `"${collapsed.replaceAll('"', '""')}"`;
 }
 
 const EPISODE_SUMMARY_CHARS = 4000;

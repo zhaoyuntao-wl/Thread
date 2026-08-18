@@ -3,16 +3,28 @@ import type { EventKind } from "./events.js";
 import { segment } from "./segment.js";
 import { isIndexable } from "./governor.js";
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 // FTS 表 DDL（0-e 定案：jieba 预分词 shadow 列 body_seg，unicode61 按空格分词）。
 // contentless（content=''）：FTS 仅存分词索引，不映射 content 表列（body_seg 在 events 表不存在，
 // 外部内容表模式会报 no such column）；查询永远 JOIN events 取原文，FTS 列只用于 MATCH。
-// 单一来源：store.ts 的 EVENTS_SCHEMA 与 v5 迁移重建共用此 DDL，避免两处漂移。
+// 单一来源：store.ts 的 EVENTS_SCHEMA 与迁移重建共用此 DDL，避免两处漂移。
+// 主表：body_seg（jieba 词级）——unicode61 tokenizer。
 export const EVENTS_FTS_DDL = `CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(
   body_seg,
   content='',
   tokenize='unicode61'
+);`;
+
+// v6 兜底表（0-e 定案第 5 条落地）：trigram 内置 tokenizer 作子串召回兜底。
+// "用户只记得半句"（查询是正文 token 的连续子串、jieba 分词无法命中）时主路径 0 命中，
+// 由本表短语匹配兜底（trigram 对连续字符序列做 3-gram 索引，短语 = 子串匹配）。
+// 双表而非单表双列：better-sqlite3 内置 SQLite（3.53.2）不支持 FTS5 列级 tokenizer
+// 覆盖（"b tokenize='trigram'" parse error），独立表是可行的同语义实现（2026-08-18 修正）。
+export const EVENTS_FTS_TRI_DDL = `CREATE VIRTUAL TABLE IF NOT EXISTS events_fts_tri USING fts5(
+  body,
+  content='',
+  tokenize='trigram'
 );`;
 
 export type SchemaKind = "events" | "structured";
@@ -47,15 +59,24 @@ export function ensureSchema(db: Database.Database, kind: SchemaKind): void {
 
       // v5（0-e 定案）：FTS 从 unicode61(body 单字) 重建为 body_seg(jieba 预分词)。
       // fts5 虚拟表不支持 ALTER 加列 → DROP + 重建 + 全量回填（events 原文表不受影响）。
+      // v6（trigram 兜底表）：主表已存在但兜底表缺失/为空 → 重建回填（v5 库升级触发）。
+      // 判断依据 = 兜底表数据量（CREATE IF NOT EXISTS 后空表 = 未回填，需重建；不能只看表存在）。
+      db.exec(EVENTS_FTS_DDL);
+      db.exec(EVENTS_FTS_TRI_DDL);
+      const triCount = (db.prepare(`SELECT COUNT(*) AS c FROM events_fts_tri`).get() as { c: number }).c;
       const ftsCols = cols("events_fts");
-      if (!ftsCols.has("body_seg")) {
+      if (!ftsCols.has("body_seg") || triCount === 0) {
         db.exec(`DROP TABLE IF EXISTS events_fts`);
+        db.exec(`DROP TABLE IF EXISTS events_fts_tri`);
         db.exec(EVENTS_FTS_DDL);
+        db.exec(EVENTS_FTS_TRI_DDL);
         const rows = db.prepare(`SELECT id, kind, body FROM events`).all() as Array<{ id: number; kind: EventKind; body: string }>;
-        const ins = db.prepare(`INSERT INTO events_fts(rowid, body_seg) VALUES (?, ?)`);
+        const insSeg = db.prepare(`INSERT INTO events_fts(rowid, body_seg) VALUES (?, ?)`);
+        const insTri = db.prepare(`INSERT INTO events_fts_tri(rowid, body) VALUES (?, ?)`);
         for (const r of rows) {
           if (isIndexable(r.kind)) {
-            ins.run(r.id, segment(r.body));
+            insSeg.run(r.id, segment(r.body));
+            insTri.run(r.id, r.body);
           }
         }
       }

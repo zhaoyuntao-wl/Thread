@@ -99,17 +99,20 @@ describe("queryMemory", () => {
     expect(result.status).toBe("not-found");
   });
 
-  it("degrades to episode summary on partial-token mismatch", () => {
+  it("trigram 兜底子串命中优先于降级摘要；完全无关查询仍 not-found", () => {
     store.append({
       session_id: "q1",
       kind: "user_message",
       ts: "2026-08-13T00:00:10.000Z",
       body: "继续开发",
     });
-    const result = queryMemory(store, "bcryp", { sessionId: "q1" });
-    expect(result.status).toBe("degraded");
-    expect(result.results[0].kind).toBe("summary");
-    expect(result.results[0].body).toContain("bcrypt");
+    // "bcryp" 是 bcrypt 的连续子串 → trigram 兜底命中（优于降级摘要）
+    const subHit = queryMemory(store, "bcryp", { sessionId: "q1" });
+    expect(subHit.status).toBe("found");
+    expect(subHit.results[0].body).toContain("bcrypt");
+    // 完全无关查询 → 无任何命中 → not-found（降级摘要需 token 在摘要中，此处不满足）
+    const result = queryMemory(store, "bcrypzzq", { sessionId: "q1" });
+    expect(result.status).toBe("not-found");
   });
 
   it("queryEvents filters by kind and time range", () => {
