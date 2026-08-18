@@ -3,7 +3,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LoginService } from "./auth.js";
-import { FileSecurityStateStore, FileUserStore } from "./store.js";
+import { FileUserStore } from "./store.js";
 
 const USERNAME = "alice";
 const PASSWORD = "pw-123456";
@@ -56,16 +56,9 @@ function parseArgs(argv: string[]): CliArgs {
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
   const usersFile = join(args.root, "users.json");
-  const stateFile = join(args.root, "security.json");
-  if (args.reset) {
-    rmSync(usersFile, { force: true });
-    rmSync(stateFile, { force: true });
-  }
+  if (args.reset) rmSync(usersFile, { force: true });
 
-  const service = new LoginService(args.secret, {
-    store: new FileUserStore(usersFile),
-    stateStore: new FileSecurityStateStore(stateFile),
-  });
+  const service = new LoginService(args.secret, { store: new FileUserStore(usersFile) });
   const step = (title: string): void => console.log(`\n== ${title}`);
   const say = (msg: string): void => console.log(`   ${msg}`);
 
@@ -95,27 +88,13 @@ function main(): void {
   );
 
   step("重启持久化验证（同一数据文件新建服务实例）");
-  const restarted = new LoginService(args.secret, {
-    store: new FileUserStore(usersFile),
-    stateStore: new FileSecurityStateStore(stateFile),
-  });
+  const restarted = new LoginService(args.secret, { store: new FileUserStore(usersFile) });
   const again = restarted.authenticate(token);
   say(again ? "新实例仍能鉴权同一 token：用户与密钥已落盘" : "新实例鉴权失败（异常）");
 
   step("登出");
   service.logout(token);
   say(service.authenticate(token) ? "登出后 token 仍有效（异常）" : "登出后 token 已吊销");
-
-  step("重启后吊销持久化验证（新实例仍拒收已吊销 token）");
-  const restartedAfterLogout = new LoginService(args.secret, {
-    store: new FileUserStore(usersFile),
-    stateStore: new FileSecurityStateStore(stateFile),
-  });
-  say(
-    restartedAfterLogout.authenticate(token)
-      ? "新实例仍接受已吊销 token（异常）"
-      : "新实例拒收已吊销 token：吊销状态已落盘",
-  );
 
   if (args.changePassword) {
     step("改密演示（一次性用户）");

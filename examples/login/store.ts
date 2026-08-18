@@ -27,70 +27,12 @@ export class FileUserStore implements UserStore {
   }
 
   save(users: User[]): void {
-    writeJsonAtomic(this.filePath, users);
+    mkdirSync(dirname(this.filePath), { recursive: true });
+    // 先写临时文件再原子改名：崩溃/中断不会留下半截损坏的用户文件
+    const tmp = `${this.filePath}.tmp`;
+    writeFileSync(tmp, JSON.stringify(users, null, 2), "utf8");
+    renameSync(tmp, this.filePath);
   }
-}
-
-export interface BlacklistEntry {
-  jti: string;
-  exp: number;
-}
-
-export interface FailureRecord {
-  username: string;
-  count: number;
-  firstAt: number;
-}
-
-export interface SecurityState {
-  blacklist: BlacklistEntry[];
-  failures: FailureRecord[];
-}
-
-export interface SecurityStateStore {
-  load(): SecurityState;
-  save(state: SecurityState): void;
-}
-
-// 吊销黑名单与登录锁定计数单独落盘：重启后 logout 吊销与锁定窗口仍然生效
-export class FileSecurityStateStore implements SecurityStateStore {
-  constructor(private readonly filePath: string) {}
-
-  load(): SecurityState {
-    let raw: string;
-    try {
-      raw = readFileSync(this.filePath, "utf8");
-    } catch {
-      return emptyState();
-    }
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      if (typeof parsed !== "object" || parsed === null) return emptyState();
-      const state = parsed as Record<string, unknown>;
-      return {
-        blacklist: Array.isArray(state.blacklist) ? state.blacklist.filter(isBlacklistEntry) : [],
-        failures: Array.isArray(state.failures) ? state.failures.filter(isFailureRecord) : [],
-      };
-    } catch {
-      return emptyState();
-    }
-  }
-
-  save(state: SecurityState): void {
-    writeJsonAtomic(this.filePath, state);
-  }
-}
-
-function emptyState(): SecurityState {
-  return { blacklist: [], failures: [] };
-}
-
-// 先写临时文件再原子改名：崩溃/中断不会留下半截损坏的文件
-function writeJsonAtomic(filePath: string, value: unknown): void {
-  mkdirSync(dirname(filePath), { recursive: true });
-  const tmp = `${filePath}.tmp`;
-  writeFileSync(tmp, JSON.stringify(value, null, 2), "utf8");
-  renameSync(tmp, filePath);
 }
 
 function isUser(value: unknown): value is User {
@@ -101,21 +43,5 @@ function isUser(value: unknown): value is User {
     typeof user.username === "string" &&
     typeof user.passwordHash === "string" &&
     typeof user.createdAt === "string"
-  );
-}
-
-function isBlacklistEntry(value: unknown): value is BlacklistEntry {
-  if (typeof value !== "object" || value === null) return false;
-  const entry = value as Record<string, unknown>;
-  return typeof entry.jti === "string" && typeof entry.exp === "number";
-}
-
-function isFailureRecord(value: unknown): value is FailureRecord {
-  if (typeof value !== "object" || value === null) return false;
-  const record = value as Record<string, unknown>;
-  return (
-    typeof record.username === "string" &&
-    typeof record.count === "number" &&
-    typeof record.firstAt === "number"
   );
 }

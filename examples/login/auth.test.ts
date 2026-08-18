@@ -1,18 +1,13 @@
 import { createHmac } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   LoginService,
-  LoginServiceOptions,
   TokenBlacklist,
   hashPassword,
   signToken,
   verifyPassword,
   verifyToken,
 } from "./auth.js";
-import { FileSecurityStateStore, FileUserStore } from "./store.js";
 
 const SECRET = "test-secret";
 
@@ -252,60 +247,5 @@ describe("changePassword", () => {
       ok: false,
       reason: "unknown-user",
     });
-  });
-});
-
-describe("security state persistence across restarts", () => {
-  const dirs: string[] = [];
-  const tempDir = (): string => {
-    const dir = mkdtempSync(join(tmpdir(), "thread-login-state-"));
-    dirs.push(dir);
-    return dir;
-  };
-  afterEach(() => {
-    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-  });
-
-  function persistedService(dir: string, options: Partial<LoginServiceOptions> = {}): LoginService {
-    return new LoginService(SECRET, {
-      store: new FileUserStore(join(dir, "users.json")),
-      stateStore: new FileSecurityStateStore(join(dir, "security.json")),
-      ...options,
-    });
-  }
-
-  it("keeps a revoked token revoked across service instances", () => {
-    const dir = tempDir();
-    const first = persistedService(dir);
-    first.register("alice", "pw-123456");
-    const result = first.login("alice", "pw-123456");
-    if (!result.ok) throw new Error("login should succeed");
-    first.logout(result.token);
-
-    const second = persistedService(dir);
-    expect(second.authenticate(result.token)).toBeNull();
-  });
-
-  it("keeps the lockout across service instances", () => {
-    const dir = tempDir();
-    const first = persistedService(dir, { maxAttempts: 2 });
-    first.register("alice", "pw-123456");
-    first.login("alice", "wrong-1");
-    first.login("alice", "wrong-2");
-    expect(first.login("alice", "pw-123456")).toEqual({ ok: false, reason: "locked" });
-
-    const second = persistedService(dir, { maxAttempts: 2 });
-    expect(second.login("alice", "pw-123456")).toEqual({ ok: false, reason: "locked" });
-  });
-
-  it("clears persisted failures on a successful login", () => {
-    const dir = tempDir();
-    const first = persistedService(dir, { maxAttempts: 2 });
-    first.register("alice", "pw-123456");
-    first.login("alice", "wrong-1");
-    expect(first.login("alice", "pw-123456")).toEqual({ ok: true, token: expect.any(String) });
-
-    const second = persistedService(dir, { maxAttempts: 1 });
-    expect(second.login("alice", "pw-123456")).toEqual({ ok: true, token: expect.any(String) });
   });
 });

@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import type { SecurityStateStore, UserStore } from "./store.js";
+import type { UserStore } from "./store.js";
 
 export interface User {
   id: string;
@@ -83,10 +83,6 @@ export function verifyToken(token: string, secret: string): VerifyResult {
 export class TokenBlacklist {
   private readonly revoked = new Map<string, number>();
 
-  constructor(initial: ReadonlyArray<{ jti: string; exp: number }> = []) {
-    for (const { jti, exp } of initial) this.revoked.set(jti, exp);
-  }
-
   revoke(jti: string, exp: number): void {
     this.revoked.set(jti, exp);
   }
@@ -99,10 +95,6 @@ export class TokenBlacklist {
       return false;
     }
     return true;
-  }
-
-  entries(): Array<{ jti: string; exp: number }> {
-    return [...this.revoked.entries()].map(([jti, exp]) => ({ jti, exp }));
   }
 }
 
@@ -123,7 +115,6 @@ export interface LoginServiceOptions {
   lockoutMs?: number;
   blacklist?: TokenBlacklist;
   store?: UserStore;
-  stateStore?: SecurityStateStore;
 }
 
 export class LoginService {
@@ -133,7 +124,6 @@ export class LoginService {
   private readonly lockoutMs: number;
   private readonly blacklist: TokenBlacklist;
   private readonly store: UserStore | undefined;
-  private readonly stateStore: SecurityStateStore | undefined;
 
   constructor(
     private readonly secret: string,
@@ -143,16 +133,8 @@ export class LoginService {
     this.lockoutMs = options.lockoutMs ?? 15 * 60 * 1000;
     this.blacklist = options.blacklist ?? new TokenBlacklist();
     this.store = options.store;
-    this.stateStore = options.stateStore;
     if (this.store) {
       for (const user of this.store.load()) this.users.set(user.username, user);
-    }
-    if (this.stateStore) {
-      const state = this.stateStore.load();
-      for (const { jti, exp } of state.blacklist) this.blacklist.revoke(jti, exp);
-      for (const record of state.failures) {
-        this.failed.set(record.username, { count: record.count, firstAt: record.firstAt });
-      }
     }
   }
 
@@ -179,19 +161,15 @@ export class LoginService {
       const record = fail ?? { count: 0, firstAt: Date.now() };
       record.count += 1;
       this.failed.set(username, record);
-      this.persistState();
       return { ok: false, reason: user ? "bad-password" : "unknown-user" };
     }
-    if (this.failed.delete(username)) this.persistState();
+    this.failed.delete(username);
     return { ok: true, token: signToken({ sub: user.id, username }, this.secret) };
   }
 
   logout(token: string): void {
     const result = verifyToken(token, this.secret);
-    if (result.ok) {
-      this.blacklist.revoke(result.payload.jti, result.payload.exp);
-      this.persistState();
-    }
+    if (result.ok) this.blacklist.revoke(result.payload.jti, result.payload.exp);
   }
 
   authenticate(token: string): TokenPayload | null {
@@ -211,25 +189,13 @@ export class LoginService {
     if (!verifyPassword(oldPassword, user.passwordHash)) return { ok: false, reason: "bad-password" };
     if (newPassword.length < MIN_PASSWORD_LENGTH) return { ok: false, reason: "weak-password" };
     user.passwordHash = hashPassword(newPassword);
-    if (this.failed.delete(username)) this.persistState();
+    this.failed.delete(username);
     this.persist();
     return { ok: true };
   }
 
   private persist(): void {
     this.store?.save([...this.users.values()]);
-  }
-
-  // 只落未过期的黑名单条目；过期项下次鉴权时惰性清除，无需立即写盘
-  private persistState(): void {
-    this.stateStore?.save({
-      blacklist: this.blacklist.entries().filter((entry) => entry.exp > Date.now()),
-      failures: [...this.failed.entries()].map(([username, record]) => ({
-        username,
-        count: record.count,
-        firstAt: record.firstAt,
-      })),
-    });
   }
 
   private failures(username: string): { count: number; firstAt: number } | undefined {

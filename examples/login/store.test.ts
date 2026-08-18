@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LoginService } from "./auth.js";
-import { FileSecurityStateStore, FileUserStore } from "./store.js";
+import { FileUserStore } from "./store.js";
 
 const SECRET = "test-secret";
 const dirs: string[] = [];
@@ -73,45 +73,6 @@ describe("FileUserStore", () => {
       { id: "u1", username: "alice", passwordHash: "salt:hash", createdAt: "t" },
     ]);
     expect(JSON.parse(readFileSync(file, "utf8"))).toHaveLength(1);
-  });
-});
-
-describe("FileSecurityStateStore", () => {
-  it("loads an empty state when the file does not exist", () => {
-    const store = new FileSecurityStateStore(join(tempDir(), "security.json"));
-    expect(store.load()).toEqual({ blacklist: [], failures: [] });
-  });
-
-  it("round-trips blacklist and failures through save and load", () => {
-    const file = join(tempDir(), "security.json");
-    const store = new FileSecurityStateStore(file);
-    const state = {
-      blacklist: [{ jti: "jti-1", exp: 1_000 }],
-      failures: [{ username: "alice", count: 2, firstAt: 123 }],
-    };
-    store.save(state);
-    expect(store.load()).toEqual(state);
-  });
-
-  it("drops malformed entries but keeps valid ones", () => {
-    const file = join(tempDir(), "security.json");
-    writeFileSync(
-      file,
-      JSON.stringify({
-        blacklist: [{ jti: "ok", exp: 1 }, "junk", { jti: "no-exp" }],
-        failures: [{ username: "alice", count: 1, firstAt: 2 }, { username: "bob" }],
-      }),
-      "utf8",
-    );
-    const state = new FileSecurityStateStore(file).load();
-    expect(state.blacklist).toEqual([{ jti: "ok", exp: 1 }]);
-    expect(state.failures).toEqual([{ username: "alice", count: 1, firstAt: 2 }]);
-  });
-
-  it("loads an empty state from corrupt JSON", () => {
-    const file = join(tempDir(), "security.json");
-    writeFileSync(file, "{not valid json", "utf8");
-    expect(new FileSecurityStateStore(file).load()).toEqual({ blacklist: [], failures: [] });
   });
 });
 
