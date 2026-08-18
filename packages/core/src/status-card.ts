@@ -5,7 +5,7 @@ import { applyScopePriority } from "./store.js";
 // 注入隔离：内容 = 数据非指令（状态卡是用户可理解的事实 + 低频冲突询问）。
 // 情境化传达（§1.5，P0 情境 C+A）：程序判定情境 → 恰时传达对应记忆块，用户无感。
 
-export type StatusCardSituation = "normal" | "new-session" | "post-compact";
+export type StatusCardSituation = "normal" | "new-session" | "post-compact" | "decision-change";
 
 export interface BuildStatusCardOptions {
   sessionId: string;
@@ -81,6 +81,19 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
     }
   }
 
+  // 决策变更情境（§1.5.3c 机制 3）：项目最近定的决策 → 传达，防模型基于旧状态行动
+  if (situation === "decision-change" && !isolated) {
+    const recentDecisions = store.getRecentDecisionsMerged(sessionId, projectKey, 3);
+    if (recentDecisions.length > 0) {
+      lines.push("最近决策:");
+      recentDecisions.forEach((d) => {
+        const status = d.status === "active" ? "生效" : d.status === "proposed" ? "提议" : d.status;
+        lines.push(`  - [${status}] ${d.text.slice(0, 120)}${shareMark(d)} #${d.id}`);
+      });
+      lines.push("  基于最近决策行动；如有冲突需先确认，不要自行推翻。");
+    }
+  }
+
   if (goals.length > 0 && situation !== "post-compact") {
     lines.push("目标:");
     goals
@@ -114,7 +127,8 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
 }
 
 // 情境判定（程序确定性，§1.5）：供适配器在 pre-step 调用。
-// new-session = 首轮且项目已有历史（跨会话续接）；post-compact = 最近事件是压缩 checkpoint。
+// new-session = 首轮且项目已有历史（跨会话续接）；post-compact = 最近事件是压缩 checkpoint；
+// decision-change = 项目最近决策晚于本会话最新事件（会话外新定，防基于旧状态行动）。
 export function detectSituation(
   store: ThreadStore,
   opts: { sessionId: string; turn: number; projectKey?: string },
@@ -134,6 +148,14 @@ export function detectSituation(
     const recent = store.getRecentEvents(opts.sessionId, 3);
     if (recent.some((e) => e.kind === "compact_checkpoint")) {
       return "post-compact";
+    }
+    // 决策变更：项目最近决策的 updated_at 晚于本会话最新事件时间（会话外新定）
+    if (recent.length > 0) {
+      const latestEventTs = recent[0].ts;
+      const recentDecisions = store.getRecentDecisionsMerged(opts.sessionId, opts.projectKey, 1);
+      if (recentDecisions.length > 0 && recentDecisions[0].updated_at > latestEventTs) {
+        return "decision-change";
+      }
     }
   } catch {
     // 判定失败降级为 normal，不阻塞注入

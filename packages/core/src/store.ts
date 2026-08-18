@@ -707,6 +707,30 @@ export class ThreadStore {
       .all(sessionId, projectKey, sessionId) as Decision[];
   }
 
+  // 决策变更情境（§1.5.3c 机制 3）：项目级最近变更的决策（含 proposed/active，按 updated_at 倒序），
+  // 供状态卡"最近决策"块——模型打开会话即见项目刚定的决策，不靠自觉查询。
+  getRecentDecisionsMerged(sessionId: string, projectKey: string | undefined, limit = 3): Decision[] {
+    if (!projectKey) {
+      return this.structuredDb
+        .prepare(
+          `SELECT * FROM decisions
+           WHERE session_id = ? OR isolation = 0
+           ORDER BY updated_at DESC, id DESC
+           LIMIT ?`,
+        )
+        .all(sessionId, limit) as Decision[];
+    }
+    return this.structuredDb
+      .prepare(
+        `SELECT * FROM decisions
+         WHERE (session_id = ? OR (project_key = ? AND scope = 'project'))
+           AND (session_id = ? OR isolation = 0)
+         ORDER BY updated_at DESC, id DESC
+         LIMIT ?`,
+      )
+      .all(sessionId, projectKey, sessionId, limit) as Decision[];
+  }
+
   getActiveGoalsMerged(sessionId: string, projectKey?: string): Goal[] {
     if (!projectKey) {
       return this.getActiveGoals(sessionId);

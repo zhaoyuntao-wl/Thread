@@ -83,6 +83,16 @@ describe("detectSituation（§1.5 P0 情境判定，程序确定性）", () => {
   it("无 checkpoint 且非首轮 → normal", () => {
     expect(detectSituation(store, { sessionId: "brand-new", turn: 5, projectKey: "card-proj" })).toBe("normal");
   });
+
+  it("项目有比本会话最新事件更新的决策 → decision-change（§1.5.3c 机制 3）", () => {
+    // 先造一个本会话事件（作为时间基准，用过去时间），再在另一会话定决策（updated_at 明确更晚）
+    const past = new Date(Date.now() - 60_000).toISOString();
+    store.append({ session_id: "s-change", kind: "user_message", ts: past, body: "本会话事件" });
+    store.proposeDecision("s-other", "新定的开发基线决策（标准模式为主）");
+    store.confirmLatestProposed("s-other");
+    // 判定：本会话最新事件（60s 前）< 项目最近决策 updated_at（现在）→ decision-change
+    expect(detectSituation(store, { sessionId: "s-change", turn: 2, projectKey: "card-proj" })).toBe("decision-change");
+  });
 });
 
 describe("buildStatusCard 情境传达块（§1.5 P0 C+A）", () => {
@@ -109,5 +119,16 @@ describe("buildStatusCard 情境传达块（§1.5 P0 C+A）", () => {
     const card = buildStatusCard(store, { sessionId: "s1", projectKey: "card-proj", situation: "new-session", isolated: true });
     expect(card).not.toContain("会话接续");
     expect(card).toContain("本会话已隔离");
+  });
+
+  it("decision-change 情境出现最近决策块（§1.5.3c 机制 3）", () => {
+    const card = buildStatusCard(store, { sessionId: "s1", projectKey: "card-proj", situation: "decision-change" });
+    expect(card).toContain("最近决策");
+    expect(card).toContain("基于最近决策行动");
+  });
+
+  it("normal 情境不出现最近决策块", () => {
+    const card = buildStatusCard(store, { sessionId: "s1", projectKey: "card-proj", situation: "normal" });
+    expect(card).not.toContain("最近决策");
   });
 });
