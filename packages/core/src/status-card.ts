@@ -114,15 +114,20 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
 }
 
 // 情境判定（程序确定性，§1.5）：供适配器在 pre-step 调用。
-// new-session = 首轮且会话已有历史（非全新）；post-compact = 最近事件是压缩 checkpoint。
+// new-session = 首轮且项目已有历史（跨会话续接）；post-compact = 最近事件是压缩 checkpoint。
 export function detectSituation(
   store: ThreadStore,
   opts: { sessionId: string; turn: number; projectKey?: string },
 ): StatusCardSituation {
   if (opts.turn === 1) {
-    const recent = store.getRecentEvents(opts.sessionId, 1);
-    if (recent.length > 0) {
-      return "new-session";
+    // 首轮：本会话无事件（新会话）但项目有历史 → 续接情境（跨会话）
+    const own = store.getRecentEvents(opts.sessionId, 1);
+    if (own.length === 0) {
+      const merged = store.getActiveDecisionsMerged(opts.sessionId, opts.projectKey);
+      const goals = store.getActiveGoalsMerged(opts.sessionId, opts.projectKey);
+      if (merged.length > 0 || goals.length > 0) {
+        return "new-session";
+      }
     }
   }
   try {

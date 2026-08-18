@@ -60,12 +60,14 @@ describe("buildStatusCard（外部借鉴 ①③：首轮加权 + 收束语）", 
 });
 
 describe("detectSituation（§1.5 P0 情境判定，程序确定性）", () => {
-  it("首轮且会话有历史 → new-session", () => {
-    expect(detectSituation(store, { sessionId: "s1", turn: 1 })).toBe("new-session");
+  it("首轮且本会话无事件、项目有历史 → new-session（跨会话续接）", () => {
+    // s1 有历史（beforeAll 造），s2 是本会话（无事件）→ 续接情境
+    expect(detectSituation(store, { sessionId: "s2", turn: 1, projectKey: "card-proj" })).toBe("new-session");
   });
 
-  it("首轮且会话无历史（全新会话）→ normal", () => {
-    expect(detectSituation(store, { sessionId: "brand-new", turn: 1 })).toBe("normal");
+  it("首轮且本会话已有事件（续写会话）→ normal", () => {
+    // s1 自己有事件 → 不是新会话续接
+    expect(detectSituation(store, { sessionId: "s1", turn: 1, projectKey: "card-proj" })).toBe("normal");
   });
 
   it("最近事件含 compact_checkpoint → post-compact", () => {
@@ -75,11 +77,11 @@ describe("detectSituation（§1.5 P0 情境判定，程序确定性）", () => {
       ts: new Date().toISOString(),
       body: "摘要全文",
     });
-    expect(detectSituation(store, { sessionId: "s1", turn: 5 })).toBe("post-compact");
+    expect(detectSituation(store, { sessionId: "s1", turn: 5, projectKey: "card-proj" })).toBe("post-compact");
   });
 
-  it("无 checkpoint → normal", () => {
-    expect(detectSituation(store, { sessionId: "brand-new", turn: 5 })).toBe("normal");
+  it("无 checkpoint 且非首轮 → normal", () => {
+    expect(detectSituation(store, { sessionId: "brand-new", turn: 5, projectKey: "card-proj" })).toBe("normal");
   });
 });
 
