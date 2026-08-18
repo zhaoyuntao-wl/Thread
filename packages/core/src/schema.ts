@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export type SchemaKind = "events" | "structured";
 
@@ -83,6 +83,24 @@ export function ensureSchema(db: Database.Database, kind: SchemaKind): void {
         value REAL NOT NULL,
         ts TEXT NOT NULL
       );`);
+
+      // 轻确认候选（§1.5.3d）：规则粗筛暂存，未确认绝不进正式表。
+      // prompt_count = 已提示次数（衰减控制）；last_prompt_ts = 上次提示时间（超时丢弃）；kind = decision|preference（影响分级）。
+      db.exec(`CREATE TABLE IF NOT EXISTS pending_candidates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        text TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'preference',
+        status TEXT NOT NULL DEFAULT 'pending',
+        source_event INTEGER,
+        created_at TEXT NOT NULL,
+        prompt_count INTEGER NOT NULL DEFAULT 0,
+        last_prompt_ts TEXT,
+        project_key TEXT,
+        isolation INTEGER NOT NULL DEFAULT 0
+      );`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_pending_project ON pending_candidates(project_key, status)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_pending_session ON pending_candidates(session_id, status)`);
     }
 
     db.prepare(`INSERT INTO schema_version (version, applied_at) VALUES (?, ?)`).run(

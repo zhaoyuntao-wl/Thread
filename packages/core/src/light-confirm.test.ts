@@ -22,10 +22,10 @@ afterAll(() => {
 describe("analyzeTurn", () => {
   it("detects assistant decision declarations", () => {
     expect(analyzeTurn({ assistant_msg: "我记下了方案 A" }).decisions).toEqual([
-      { action: "propose", text: "方案 A" },
+      { action: "propose", text: "方案 A", source: "assistant-declare" },
     ]);
     expect(analyzeTurn({ assistant_msg: "我决定采用 Vite 构建" }).decisions).toEqual([
-      { action: "propose", text: "Vite 构建" },
+      { action: "propose", text: "Vite 构建", source: "assistant-declare" },
     ]);
   });
 
@@ -95,13 +95,13 @@ describe("analyzeTurn", () => {
     expect(analyzeTurn({ assistant_msg: "产出直接决定 B/C 怎么做" }).decisions).toEqual([]);
     expect(analyzeTurn({ assistant_msg: "调研结论确定下一步" }).decisions).toEqual([]);
     expect(analyzeTurn({ assistant_msg: "我确定用 Vite" }).decisions).toEqual([
-      { action: "propose", text: "用 Vite" },
+      { action: "propose", text: "用 Vite", source: "assistant-declare" },
     ]);
     expect(analyzeTurn({ assistant_msg: "我们已经决定用 pnpm" }).decisions).toEqual([
-      { action: "propose", text: "用 pnpm" },
+      { action: "propose", text: "用 pnpm", source: "assistant-declare" },
     ]);
     expect(analyzeTurn({ assistant_msg: "我决定采用 Vite 构建" }).decisions).toEqual([
-      { action: "propose", text: "Vite 构建" },
+      { action: "propose", text: "Vite 构建", source: "assistant-declare" },
     ]);
   });
 
@@ -161,12 +161,12 @@ describe("applyTurn", () => {
     expect(store.getRecentEvents("s2", 100).length).toBe(before + 1);
   });
 
-  it("机制1：用户侧决策宣告 → propose 而非 feedback（§1.5.3c）", () => {
+  it("机制1：用户侧决策宣告 → propose（source=user-declare，§1.5.3c）", () => {
     const a1 = analyzeTurn({ user_msg: "开发基线就定为：标准模式为主" });
-    expect(a1.decisions).toEqual([{ action: "propose", text: "标准模式为主" }]);
+    expect(a1.decisions).toEqual([{ action: "propose", text: "标准模式为主", source: "user-declare" }]);
     expect(a1.feedback).toEqual([]);
     const a2 = analyzeTurn({ user_msg: "以后就在创造模式开发" });
-    expect(a2.decisions).toEqual([{ action: "propose", text: "创造模式开发" }]);
+    expect(a2.decisions).toEqual([{ action: "propose", text: "创造模式开发", source: "user-declare" }]);
   });
 
   it("机制1：系统提醒/指令注入不抽结构化行（噪声过滤）", () => {
@@ -176,7 +176,7 @@ describe("applyTurn", () => {
     expect(a.goals).toEqual([]);
   });
 
-  it("机制1：偏好语仍走 feedback（决策 vs 偏好区分）", () => {
+  it("机制1：偏好语 → feedback（决策 vs 偏好区分）", () => {
     const a = analyzeTurn({ user_msg: "以后不要用 jQuery" });
     expect(a.decisions).toEqual([]);
     expect(a.feedback).toHaveLength(1);
@@ -192,5 +192,49 @@ describe("decision state machine", () => {
     expect(canTransition("active", "revoked")).toBe(true);
     expect(canTransition("superseded", "active")).toBe(false);
     expect(canTransition("revoked", "revoked")).toBe(false);
+  });
+});
+
+describe("轻确认候选（§1.5.3d：粗筛-候选，不污染正式表）", () => {
+  it("用户决策宣告 → pending 候选（kind=decision），正式表无行", () => {
+    const applied = applyAnalysis(store, "s-p1", { user_msg: "以后就在创造模式开发" }, { projectKey: "test-proj" });
+    expect(applied.pending).toHaveLength(1);
+    expect(applied.pending[0].kind).toBe("decision");
+    expect(applied.decisions).toHaveLength(0);
+    expect(store.getActiveDecisions("s-p1")).toHaveLength(0);
+    expect(store.pendingCount({ projectKey: "test-proj" })).toBeGreaterThanOrEqual(1);
+  });
+
+  it("偏好语 → 直接进 feedback 表（保持跨项目全局偏好共享）", () => {
+    const applied = applyAnalysis(store, "s-p2", { user_msg: "以后不要用 jQuery" }, { projectKey: "test-proj" });
+    expect(applied.feedback).toHaveLength(1);
+    expect(applied.pending).toHaveLength(0);
+    expect(store.getFeedback("s-p2")).toHaveLength(1);
+  });
+
+  it("确认候选 → status=confirmed；忽略 → ignored", () => {
+    const c = store.addPendingCandidate({ sessionId: "s-p3", text: "用 pnpm", kind: "decision", projectKey: "test-proj" });
+    const confirmed = store.confirmCandidate(c.id);
+    expect(confirmed?.status).toBe("confirmed");
+    const c2 = store.addPendingCandidate({ sessionId: "s-p3", text: "别用 yarn", kind: "preference", projectKey: "test-proj" });
+    const ignored = store.ignoreCandidate(c2.id);
+    expect(ignored?.status).toBe("ignored");
+    // s-p3 的行全部处理完，pendingCount 不含 s-p3
+    const s3Pending = store.listPendingCandidates({ sessionId: "s-p3" });
+    expect(s3Pending).toHaveLength(0);
+  });
+
+  it("提示计数与超时过期", () => {
+    const c = store.addPendingCandidate({ sessionId: "s-p4", text: "缓存用 LRU", kind: "decision", projectKey: "test-proj" });
+    store.markCandidatePrompted(c.id);
+    store.markCandidatePrompted(c.id);
+    const listed = store.listPendingCandidates({ projectKey: "test-proj" }).find((x) => x.id === c.id);
+    expect(listed?.prompt_count).toBe(2);
+    // 超时过期：把 last_prompt_ts 设成过去，expire 后应 ignored
+    store.structuredDb.prepare(`UPDATE pending_candidates SET last_prompt_ts = ? WHERE id = ?`).run("2026-01-01T00:00:00.000Z", c.id);
+    const expired = store.expireCandidates({ before: new Date().toISOString(), projectKey: "test-proj" });
+    expect(expired).toBeGreaterThanOrEqual(1);
+    const after = store.listPendingCandidates({ projectKey: "test-proj" }).find((x) => x.id === c.id);
+    expect(after).toBeUndefined();
   });
 });

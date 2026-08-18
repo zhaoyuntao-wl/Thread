@@ -1,4 +1,4 @@
-import type { Decision, FeedbackRow, Goal, StructuredWriteOptions, ThreadStore } from "./store.js";
+import type { Decision, FeedbackRow, Goal, PendingCandidate, StructuredWriteOptions, ThreadStore } from "./store.js";
 
 export interface TurnInput {
   user_msg?: string;
@@ -11,7 +11,7 @@ export interface GoalAction {
 }
 
 export type DecisionAction =
-  | { action: "propose"; text: string }
+  | { action: "propose"; text: string; source?: "user-declare" | "assistant-declare" }
   | { action: "confirm" }
   | { action: "revoke" }
   | { action: "supersede"; text: string };
@@ -100,7 +100,7 @@ export function analyzeTurn(input: TurnInput): TurnAnalysis {
       if (m && m[1]?.trim()) {
         const text = m[1].trim().slice(0, MAX_DECISION_TEXT);
         if (!/[吗呢吧]$/.test(text)) {
-          analysis.decisions.push({ action: "propose", text });
+          analysis.decisions.push({ action: "propose", text, source: "user-declare" });
           return analysis;
         }
         break;
@@ -135,7 +135,7 @@ export function analyzeTurn(input: TurnInput): TurnAnalysis {
       if (m && m[1]?.trim()) {
         const text = m[1].trim().slice(0, MAX_DECISION_TEXT);
         if (!/[吗呢吧]$/.test(text)) {
-          analysis.decisions.push({ action: "propose", text });
+          analysis.decisions.push({ action: "propose", text, source: "assistant-declare" });
         }
         break;
       }
@@ -149,6 +149,7 @@ export interface AppliedTurn {
   goals: Goal[];
   decisions: Decision[];
   feedback: FeedbackRow[];
+  pending: PendingCandidate[];
 }
 
 export function applyTurn(
@@ -195,11 +196,25 @@ export function applyAnalysis(
   const structuredOpts = { sourceEvent, ts, scope: opts.scope, projectKey: opts.projectKey, origin: opts.origin, isolation: opts.isolation };
 
   return store.transact(() => {
-    const applied: AppliedTurn = { goals: [], decisions: [], feedback: [] };
+    const applied: AppliedTurn = { goals: [], decisions: [], feedback: [], pending: [] };
     for (const g of analysis.goals) {
       applied.goals.push(store.addGoal(sessionId, g.text, structuredOpts));
     }
     for (const d of analysis.decisions) {
+      // §1.5.3d：用户侧决策宣告 → 候选暂存（等用户确认，不污染正式表）；assistant 宣告 → 直接入库
+      if (d.action === "propose" && d.source === "user-declare") {
+        applied.pending.push(
+          store.addPendingCandidate({
+            sessionId,
+            text: d.text,
+            kind: "decision",
+            sourceEvent,
+            projectKey: opts.projectKey,
+            isolation: opts.isolation,
+          }),
+        );
+        continue;
+      }
       switch (d.action) {
         case "propose":
           applied.decisions.push(store.proposeDecision(sessionId, d.text, structuredOpts));
@@ -228,6 +243,8 @@ export function applyAnalysis(
       }
     }
     for (const f of analysis.feedback) {
+      // §1.5.3d 修正：偏好仍直接进 feedback 表（保持跨项目全局偏好共享），
+      // 只有用户决策宣告走 pending 候选（决策权威性高、需确认后入库）
       applied.feedback.push(store.addFeedback(sessionId, f.text, f.kind, structuredOpts));
     }
     return applied;

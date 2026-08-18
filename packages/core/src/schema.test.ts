@@ -33,7 +33,7 @@ describe("schema v2 migration (B④ 双库)", () => {
     for (const t of ["spills", "schema_version"]) {
       expect(db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(t), `table ${t}`).toBeTruthy();
     }
-    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(3);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(4);
     db.close();
     rmSync(dir, { recursive: true, force: true });
   });
@@ -77,10 +77,10 @@ describe("schema v2 migration (B④ 双库)", () => {
       );
       for (const col of ["project_key", "scope", "origin", "isolation"]) expect(cols.has(col), `${t}.${col}`).toBe(true);
     }
-    for (const t of ["entities", "decision_entities", "metrics", "session_isolation", "schema_version"]) {
+    for (const t of ["entities", "decision_entities", "metrics", "session_isolation", "pending_candidates", "schema_version"]) {
       expect(db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(t), `table ${t}`).toBeTruthy();
     }
-    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(3);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(4);
     db.close();
     rmSync(dir, { recursive: true, force: true });
   });

@@ -119,6 +119,17 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
       .reverse()
       .forEach((e) => lines.push(`  - ${e.kind}: ${e.body.slice(0, 60)}`));
   }
+  // 轻确认候选计数（§1.5.3d 通道二）：低影响候选只留入口，用户主动用 /thread-pending 查看
+  if (!isolated) {
+    try {
+      const pending = store.pendingCount({ sessionId, projectKey });
+      if (pending > 0) {
+        lines.push(`待确认（${pending} 条，/thread-pending 查看）: 模型不得将未确认候选当正式决策执行。`);
+      }
+    } catch {
+      // 计数失败降级，不阻塞
+    }
+  }
   // 收束语（外部借鉴③）：绑定式行动收束，防止纯"再想想"式开放引导
   lines.push("需要更早的历史细节时，调用 query_session_memory 工具查询，并基于结果给出结论。");
   lines.push("收到 隔离//unisolate//thread-publish 单命令时，只回一句状态确认，不展开思考。");

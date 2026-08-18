@@ -241,6 +241,21 @@ export interface FeedbackRow {
   isolation?: number;
 }
 
+// 轻确认候选（§1.5.3d）：规则粗筛暂存，未确认绝不进正式 decisions/feedback 表
+export interface PendingCandidate {
+  id: number;
+  session_id: string;
+  text: string;
+  kind: "decision" | "preference";
+  status: "pending" | "confirmed" | "ignored";
+  source_event: number | null;
+  created_at: string;
+  prompt_count: number;
+  last_prompt_ts: string | null;
+  project_key?: string | null;
+  isolation: number;
+}
+
 export interface LineageNeighbor {
   id: number;
   session_id: string;
@@ -327,6 +342,81 @@ export class ThreadStore {
   close(): void {
     this.eventsDb.close();
     this.structuredDb.close();
+  }
+
+  // ─── 轻确认候选（§1.5.3d）：规则粗筛暂存，未确认绝不进正式表 ───
+
+  addPendingCandidate(input: { sessionId: string; text: string; kind: "decision" | "preference"; sourceEvent?: number; projectKey?: string; isolation?: boolean }): PendingCandidate {
+    const now = new Date().toISOString();
+    const row = this.structuredDb
+      .prepare(
+        `INSERT INTO pending_candidates (session_id, text, kind, status, source_event, created_at, project_key, isolation)
+         VALUES (?, ?, ?, 'pending', ?, ?, ?, ?) RETURNING *`,
+      )
+      .get(input.sessionId, input.text, input.kind, input.sourceEvent ?? null, now, input.projectKey ?? null, input.isolation ? 1 : 0) as PendingCandidate;
+    return row;
+  }
+
+  listPendingCandidates(opts: { sessionId?: string; projectKey?: string } = {}): PendingCandidate[] {
+    const where: string[] = ["status = 'pending'"];
+    const params: unknown[] = [];
+    if (opts.projectKey) {
+      where.push("project_key = ?");
+      params.push(opts.projectKey);
+    } else if (opts.sessionId) {
+      where.push("session_id = ?");
+      params.push(opts.sessionId);
+    }
+    return this.structuredDb
+      .prepare(`SELECT * FROM pending_candidates WHERE ${where.join(" AND ")} ORDER BY id DESC LIMIT 20`)
+      .all(...params) as PendingCandidate[];
+  }
+
+  confirmCandidate(id: number): PendingCandidate | undefined {
+    return this.structuredDb
+      .prepare(`UPDATE pending_candidates SET status = 'confirmed' WHERE id = ? AND status = 'pending' RETURNING *`)
+      .get(id) as PendingCandidate | undefined;
+  }
+
+  ignoreCandidate(id: number): PendingCandidate | undefined {
+    return this.structuredDb
+      .prepare(`UPDATE pending_candidates SET status = 'ignored' WHERE id = ? AND status = 'pending' RETURNING *`)
+      .get(id) as PendingCandidate | undefined;
+  }
+
+  markCandidatePrompted(id: number): void {
+    this.structuredDb
+      .prepare(`UPDATE pending_candidates SET prompt_count = prompt_count + 1, last_prompt_ts = ? WHERE id = ?`)
+      .run(new Date().toISOString(), id);
+  }
+
+  expireCandidates(opts: { before: string; projectKey?: string }): number {
+    if (opts.projectKey) {
+      const info = this.structuredDb
+        .prepare(`UPDATE pending_candidates SET status = 'ignored' WHERE status = 'pending' AND project_key = ? AND last_prompt_ts IS NOT NULL AND last_prompt_ts < ?`)
+        .run(opts.projectKey, opts.before);
+      return info.changes;
+    }
+    const info = this.structuredDb
+      .prepare(`UPDATE pending_candidates SET status = 'ignored' WHERE status = 'pending' AND last_prompt_ts IS NOT NULL AND last_prompt_ts < ?`)
+      .run(opts.before);
+    return info.changes;
+  }
+
+  pendingCount(opts: { sessionId?: string; projectKey?: string } = {}): number {
+    const where: string[] = ["status = 'pending'"];
+    const params: unknown[] = [];
+    if (opts.projectKey) {
+      where.push("project_key = ?");
+      params.push(opts.projectKey);
+    } else if (opts.sessionId) {
+      where.push("session_id = ?");
+      params.push(opts.sessionId);
+    }
+    const row = this.structuredDb
+      .prepare(`SELECT COUNT(*) AS c FROM pending_candidates WHERE ${where.join(" AND ")}`)
+      .get(...params) as { c: number };
+    return row.c;
   }
 
   append(
