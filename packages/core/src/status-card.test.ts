@@ -32,6 +32,19 @@ describe("buildStatusCard（外部借鉴 ①③：首轮加权 + 收束语）", 
     expect(card).toContain("需要更早的历史细节时，调用 query_session_memory 工具查询，并基于结果给出结论。");
   });
 
+  it("候选唤醒（2026-08-20 复盘修复）：待确认计数 + 前 2 条原文入卡", () => {
+    store.addPendingCandidate({ sessionId: "s1", text: "候选决策 A", kind: "decision", projectKey: "card-proj" });
+    store.addPendingCandidate({ sessionId: "s1", text: "候选决策 B", kind: "decision", projectKey: "card-proj" });
+    store.addPendingCandidate({ sessionId: "s1", text: "候选偏好 C", kind: "preference", projectKey: "card-proj" });
+    const card = buildStatusCard(store, { sessionId: "s1", projectKey: "card-proj" });
+    expect(card).toContain("待确认（3 条");
+    expect(card).toContain("候选偏好 C"); // 最近优先（listPendingCandidates ORDER BY id DESC）
+    expect(card).toContain("候选决策 B");
+    expect(card).not.toContain("候选决策 A"); // 只露前 2 条，控制预算
+    // 清理候选，避免影响后续用例
+    store.ignoreAllPendingCandidates({ projectKey: "card-proj" });
+  });
+
   it("首轮档展示更多目标/决策（① 锚点全量）", () => {
     const normal = buildStatusCard(store, { sessionId: "s1", projectKey: "card-proj" });
     const first = buildStatusCard(store, { sessionId: "s1", projectKey: "card-proj", firstTurn: true });

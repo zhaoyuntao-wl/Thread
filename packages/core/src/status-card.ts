@@ -134,15 +134,20 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
       .reverse()
       .forEach((e) => lines.push(`  - ${e.kind}: ${e.body.slice(0, 60)}`));
   }
-  // 轻确认候选计数（§1.5.3d 通道二）：低影响候选只留入口，用户主动用 /thread-pending 查看
+  // 轻确认候选唤醒（§1.5.3d 通道二 + 2026-08-20 复盘修复）：计数 + 前 2 条原文——
+  // 无 UI 环境（headless）弹窗不触发，候选堆积数天未决（狗粮实证：含发布策略决策本身）；
+  // 原文入卡让模型可向用户转述/推进 /thread-pending，修复"重要决策既不转正又被实际遵循"的脱节
   if (!isolated) {
     try {
-      const pending = store.pendingCount({ sessionId, projectKey });
-      if (pending > 0) {
-        lines.push(`待确认（${pending} 条，/thread-pending 查看）: 模型不得将未确认候选当正式决策执行。`);
+      const pending = store.listPendingCandidates({ sessionId, projectKey });
+      if (pending.length > 0) {
+        lines.push(`待确认（${pending.length} 条，/thread-pending 查看）: 模型不得将未确认候选当正式决策执行。`);
+        pending
+          .slice(0, 2)
+          .forEach((c) => lines.push(`  - #${c.id} [${c.kind === "decision" ? "决策" : "偏好"}] ${c.text.slice(0, 60)}`));
       }
     } catch {
-      // 计数失败降级，不阻塞
+      // 失败降级，不阻塞
     }
   }
   // 收束语（外部借鉴③）：绑定式行动收束，防止纯"再想想"式开放引导
