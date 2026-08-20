@@ -12,6 +12,10 @@ export interface ScenarioTurn {
   assistant?: string;
   tool?: ScenarioTool;
   compact?: string;
+  // 双代理 delta 场景：true = 事件路由到兄弟会话（他代理），false/缺省 = 主会话
+  other?: boolean;
+  // 收尾沉淀场景：该轮用户消息为收尾词 → 触发 sedimentClosingTodos
+  sediment?: boolean;
 }
 
 export type ScenarioExpectation =
@@ -20,7 +24,14 @@ export type ScenarioExpectation =
   | { kind: "recall"; query: string; mustContain: string }
   | { kind: "lineage"; file: string; minEdges: number }
   | { kind: "compact"; contains: string }
-  | { kind: "status-card"; contains: string };
+  | { kind: "status-card"; contains: string }
+  | { kind: "asset"; contains: string }
+  | { kind: "asset-edge"; minEdges: number }
+  | { kind: "todo"; contains: string }
+  | { kind: "todo-count"; count: number }
+  | { kind: "nav"; nav: "ls" | "cd" | "cat" | "grep"; target?: string; query?: string; contains: string }
+  | { kind: "delta"; contains: string }
+  | { kind: "card-situation"; situation: "new-session" | "post-compact"; contains: string };
 
 export interface Scenario {
   id: string;
@@ -140,6 +151,74 @@ export const SCENARIOS: Scenario[] = [
       { kind: "status-card", contains: "Kong" },
       { kind: "status-card", contains: "vitest" },
       { kind: "recall", query: "Kong 网关", mustContain: "Kong" },
+    ],
+  },
+  {
+    id: "asset-pipeline",
+    title: "产出识别管线：write/edit .md → knowledge_assets + 写时建边（produces/references）",
+    turns: [
+      { user: "写一份 v3 设计文档" },
+      { tool: { name: "write", file_path: "docs/local/design/v3.md", input: { file_path: "docs/local/design/v3.md", content: "# 设计 v3\n正文" }, output: "已写入" } },
+    ],
+    expectations: [
+      { kind: "asset", contains: "设计 v3" },
+      { kind: "asset-edge", minEdges: 2 },
+    ],
+  },
+  {
+    id: "closing-sediment",
+    title: "收尾自动沉淀：收尾词 → 目标进 todos（幂等，重复收尾不重复）",
+    turns: [
+      { user: "帮我实现批 5 验证" },
+      { assistant: "我记下了目标：完成批 5 验证" },
+      { user: "先收了", sediment: true },
+      { user: "先收了", sediment: true },
+    ],
+    expectations: [
+      { kind: "todo", contains: "未完成" },
+      { kind: "todo-count", count: 1 },
+    ],
+  },
+  {
+    id: "nav-primitives",
+    title: "查询原语：ls/cat/grep 在关联结构上导航",
+    turns: [
+      { user: "整理研究笔记" },
+      { tool: { name: "write", file_path: "docs/local/research/notes.md", input: { file_path: "docs/local/research/notes.md", content: "# 检索调研\nBM25 中文检索结论" }, output: "ok" } },
+    ],
+    expectations: [
+      { kind: "nav", nav: "ls", contains: "检索调研" },
+      { kind: "nav", nav: "grep", query: "研究笔记", contains: "研究笔记" },
+      { kind: "nav", nav: "grep", query: "检索调研", contains: "notes.md" },
+      { kind: "nav", nav: "cat", target: "docs/local/research/notes.md", contains: "BM25 中文检索" },
+    ],
+  },
+  {
+    id: "dual-agent-delta",
+    title: "双代理 delta：他代理新决策 → 增量可见（G5，本代理行排除）",
+    turns: [
+      { user: "主代理开始工作" },
+      { user: "我决定登录用 JWT", other: true },
+      { assistant: "（他代理记下决策）", other: true },
+    ],
+    expectations: [
+      { kind: "delta", contains: "JWT" },
+    ],
+  },
+  {
+    id: "new-session-continuation",
+    title: "接续包/发现层：new-session 卡含最近产出/待办/活跃会话",
+    turns: [
+      { user: "我定了目标：重构核心" },
+      { tool: { name: "write", file_path: "docs/local/design/v9.md", input: { file_path: "docs/local/design/v9.md", content: "# 重构方案\n" }, output: "ok" } },
+      { user: "先收了", sediment: true },
+      { user: "他代理产出调研笔记", other: true },
+      { tool: { name: "write", file_path: "docs/local/research/other-notes.md", input: { file_path: "docs/local/research/other-notes.md", content: "# 他代理笔记\n" }, output: "ok" }, other: true },
+    ],
+    expectations: [
+      { kind: "card-situation", situation: "new-session", contains: "最近产出" },
+      { kind: "card-situation", situation: "new-session", contains: "待办" },
+      { kind: "card-situation", situation: "new-session", contains: "活跃会话" },
     ],
   },
 ];

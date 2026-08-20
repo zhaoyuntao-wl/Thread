@@ -3,7 +3,7 @@ import type { EventKind } from "./events.js";
 import { segment } from "./segment.js";
 import { isIndexable } from "./governor.js";
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 8;
 
 // FTS 表 DDL（0-e 定案：jieba 预分词 shadow 列 body_seg，unicode61 按空格分词）。
 // contentless（content=''）：FTS 仅存分词索引，不映射 content 表列（body_seg 在 events 表不存在，
@@ -150,6 +150,51 @@ export function ensureSchema(db: Database.Database, kind: SchemaKind): void {
       );`);
       db.exec(`CREATE INDEX IF NOT EXISTS idx_pending_project ON pending_candidates(project_key, status)`);
       db.exec(`CREATE INDEX IF NOT EXISTS idx_pending_session ON pending_candidates(session_id, status)`);
+
+      // v8（G5 跨会话 delta）：updated_at 补齐（goals/feedback/pending_candidates 原只有 created_at）。
+      // 必须在全部 CREATE 之后（旧库首次升级时 pending_candidates 可能尚不存在）
+      for (const t of ["goals", "feedback", "pending_candidates"] as const) {
+        const c = cols(t);
+        if (!c.has("updated_at")) {
+          db.exec(`ALTER TABLE ${t} ADD COLUMN updated_at TEXT`);
+          db.exec(`UPDATE ${t} SET updated_at = created_at WHERE updated_at IS NULL`);
+        }
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_${t}_updated ON ${t}(project_key, updated_at)`);
+      }
+
+      // v7（MAX 批 1 地基）：产出/文档登记 + 待办 + 送达水位（跨会话 delta 触发判定持久化，G5）
+      db.exec(`CREATE TABLE IF NOT EXISTS knowledge_assets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        path TEXT NOT NULL,
+        title TEXT NOT NULL,
+        topic TEXT,
+        scenario TEXT,
+        session_id TEXT NOT NULL,
+        source_event INTEGER,
+        created_at TEXT NOT NULL,
+        isolation INTEGER NOT NULL DEFAULT 0
+      );`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_assets_session ON knowledge_assets(session_id, created_at)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_assets_visible ON knowledge_assets(isolation, created_at)`);
+
+      db.exec(`CREATE TABLE IF NOT EXISTS todos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        text TEXT NOT NULL,
+        basis TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TEXT NOT NULL,
+        project_key TEXT,
+        isolation INTEGER NOT NULL DEFAULT 0
+      );`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_todos_project ON todos(project_key, status)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_todos_session ON todos(session_id, status)`);
+
+      db.exec(`CREATE TABLE IF NOT EXISTS thread_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );`);
     }
 
     db.prepare(`INSERT INTO schema_version (version, applied_at) VALUES (?, ?)`).run(

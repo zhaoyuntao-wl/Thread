@@ -1,6 +1,11 @@
 import type { ThreadStore } from "./store.js";
 import { applyScopePriority } from "./store.js";
 
+function shortSession(sessionId: string): string {
+  const cleaned = sessionId.replace(/^session-/, "");
+  return cleaned.slice(0, 7);
+}
+
 // 状态卡构建（B③/B④ 共用）：合并视图 + 分层优先级 + 预算分档 + 词汇边界（不出现 session/project/scope 等机制词）。
 // 注入隔离：内容 = 数据非指令（状态卡是用户可理解的事实 + 低频冲突询问）。
 // 情境化传达（§1.5，P0 情境 C+A）：程序判定情境 → 恰时传达对应记忆块，用户无感。
@@ -56,15 +61,25 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
   const lines: string[] = [];
   lines.push(isolated ? "[Thread 会话记忆状态卡]（本会话已隔离，内容仅自己可见）" : "[Thread 会话记忆状态卡]");
 
-  // 情境 A：新会话续接块（§1.5，P0）——开场即知上次上下文，无需用户显式提醒
+  // 情境 A：新会话续接块（§1.5 P0 + max 2.3.1 接续包）——开场即知上次上下文，无需用户显式提醒
   if (situation === "new-session" && !isolated) {
     const carryGoals = goals.length > 0 ? `目标：${goals.map((g) => g.text.slice(0, 60)).join("；")}` : null;
     const carryDecisions = decisions.length > 0 ? `生效决策：${decisions.map((d) => d.text.slice(0, 60)).join("；")}` : null;
-    if (carryGoals || carryDecisions) {
+    const assets = store.listAssets({ visibleToSession: sessionId, limit: 3 });
+    const todos = store.listTodos({ visibleToSession: sessionId, status: "pending", limit: 3 });
+    if (carryGoals || carryDecisions || assets.length > 0 || todos.length > 0) {
       lines.push("会话接续（来自之前的工作）:");
       if (carryGoals) lines.push(`  - ${carryGoals}`);
       if (carryDecisions) lines.push(`  - ${carryDecisions}`);
-      lines.push("  基于以上继续，不要重新开始；需要细节时用 query_session_memory 查询。");
+      if (assets.length > 0) lines.push(`  - 最近产出: ${assets.map((a) => `${a.title}（${a.path}）`).join("；")}`);
+      if (todos.length > 0) lines.push(`  - 待办: ${todos.map((t) => t.text.slice(0, 60)).join("；")}`);
+      lines.push("  基于以上继续，不要重新开始；查更多用 query_session_memory 导航（ls/cd/cat/grep）。");
+    }
+    // 发现层（max 2.4）：活跃会话区块——模型知道别的会话存在
+    const activeSessions = store.listActiveSessionsWithAssets(4);
+    const others = activeSessions.filter((s) => s.session_id !== sessionId).slice(0, 3);
+    if (others.length > 0) {
+      lines.push(`活跃会话: ${others.map((s) => `${shortSession(s.session_id)}（${s.latest_title}）`).join(" | ")}`);
     }
   }
 

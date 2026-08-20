@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS goals (
   status TEXT NOT NULL DEFAULT 'active',
   source_event INTEGER,
   created_at TEXT NOT NULL,
+  updated_at TEXT,
   project_key TEXT,
   scope TEXT NOT NULL DEFAULT 'project',
   origin TEXT,
@@ -109,6 +110,7 @@ CREATE TABLE IF NOT EXISTS feedback (
   kind TEXT NOT NULL DEFAULT 'preference',
   source_event INTEGER,
   created_at TEXT NOT NULL,
+  updated_at TEXT,
   project_key TEXT,
   scope TEXT NOT NULL DEFAULT 'project',
   origin TEXT,
@@ -163,6 +165,56 @@ CREATE TABLE IF NOT EXISTS metrics (
   value REAL NOT NULL,
   ts TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS pending_candidates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  text TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'preference',
+  status TEXT NOT NULL DEFAULT 'pending',
+  source_event INTEGER,
+  created_at TEXT NOT NULL,
+  updated_at TEXT,
+  prompt_count INTEGER NOT NULL DEFAULT 0,
+  last_prompt_ts TEXT,
+  project_key TEXT,
+  isolation INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_pending_project ON pending_candidates(project_key, status);
+CREATE INDEX IF NOT EXISTS idx_pending_session ON pending_candidates(session_id, status);
+
+CREATE TABLE IF NOT EXISTS knowledge_assets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  path TEXT NOT NULL,
+  title TEXT NOT NULL,
+  topic TEXT,
+  scenario TEXT,
+  session_id TEXT NOT NULL,
+  source_event INTEGER,
+  created_at TEXT NOT NULL,
+  isolation INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_assets_session ON knowledge_assets(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_assets_visible ON knowledge_assets(isolation, created_at);
+
+CREATE TABLE IF NOT EXISTS todos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  text TEXT NOT NULL,
+  basis TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL,
+  project_key TEXT,
+  isolation INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_todos_project ON todos(project_key, status);
+CREATE INDEX IF NOT EXISTS idx_todos_session ON todos(session_id, status);
+
+CREATE TABLE IF NOT EXISTS thread_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 `;
 
 export interface ThreadStoreOptions {
@@ -205,6 +257,7 @@ export interface Goal {
   status: GoalStatus;
   source_event: number | null;
   created_at: string;
+  updated_at?: string | null;
   project_key?: string | null;
   scope?: string;
   origin?: string | null;
@@ -233,6 +286,7 @@ export interface FeedbackRow {
   kind: "preference" | "correction";
   source_event: number | null;
   created_at: string;
+  updated_at?: string | null;
   project_key?: string | null;
   scope?: string;
   origin?: string | null;
@@ -248,9 +302,33 @@ export interface PendingCandidate {
   status: "pending" | "confirmed" | "ignored";
   source_event: number | null;
   created_at: string;
+  updated_at?: string | null;
   prompt_count: number;
   last_prompt_ts: string | null;
   project_key?: string | null;
+  isolation: number;
+}
+
+export interface KnowledgeAsset {
+  id: number;
+  path: string;
+  title: string;
+  topic: string | null;
+  scenario: string | null;
+  session_id: string;
+  source_event: number | null;
+  created_at: string;
+  isolation: number;
+}
+
+export interface Todo {
+  id: number;
+  session_id: string;
+  text: string;
+  basis: string | null;
+  status: "pending" | "done" | "dropped";
+  created_at: string;
+  project_key: string | null;
   isolation: number;
 }
 
@@ -348,10 +426,10 @@ export class ThreadStore {
     const now = new Date().toISOString();
     const row = this.structuredDb
       .prepare(
-        `INSERT INTO pending_candidates (session_id, text, kind, status, source_event, created_at, project_key, isolation)
-         VALUES (?, ?, ?, 'pending', ?, ?, ?, ?) RETURNING *`,
+        `INSERT INTO pending_candidates (session_id, text, kind, status, source_event, created_at, updated_at, project_key, isolation)
+         VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?) RETURNING *`,
       )
-      .get(input.sessionId, input.text, input.kind, input.sourceEvent ?? null, now, input.projectKey ?? null, input.isolation ? 1 : 0) as PendingCandidate;
+      .get(input.sessionId, input.text, input.kind, input.sourceEvent ?? null, now, now, input.projectKey ?? null, input.isolation ? 1 : 0) as PendingCandidate;
     return row;
   }
 
@@ -372,20 +450,39 @@ export class ThreadStore {
 
   confirmCandidate(id: number): PendingCandidate | undefined {
     return this.structuredDb
-      .prepare(`UPDATE pending_candidates SET status = 'confirmed' WHERE id = ? AND status = 'pending' RETURNING *`)
-      .get(id) as PendingCandidate | undefined;
+      .prepare(`UPDATE pending_candidates SET status = 'confirmed', updated_at = ? WHERE id = ? AND status = 'pending' RETURNING *`)
+      .get(new Date().toISOString(), id) as PendingCandidate | undefined;
   }
 
   ignoreCandidate(id: number): PendingCandidate | undefined {
     return this.structuredDb
-      .prepare(`UPDATE pending_candidates SET status = 'ignored' WHERE id = ? AND status = 'pending' RETURNING *`)
-      .get(id) as PendingCandidate | undefined;
+      .prepare(`UPDATE pending_candidates SET status = 'ignored', updated_at = ? WHERE id = ? AND status = 'pending' RETURNING *`)
+      .get(new Date().toISOString(), id) as PendingCandidate | undefined;
+  }
+
+  // /thread-pending cancel-all（1.3）：批量丢弃 pending 候选
+  ignoreAllPendingCandidates(opts: { sessionId?: string; projectKey?: string } = {}): number {
+    const now = new Date().toISOString();
+    if (opts.projectKey) {
+      const info = this.structuredDb
+        .prepare(`UPDATE pending_candidates SET status = 'ignored', updated_at = ? WHERE status = 'pending' AND project_key = ?`)
+        .run(now, opts.projectKey);
+      return info.changes;
+    }
+    if (opts.sessionId) {
+      const info = this.structuredDb
+        .prepare(`UPDATE pending_candidates SET status = 'ignored', updated_at = ? WHERE status = 'pending' AND session_id = ?`)
+        .run(now, opts.sessionId);
+      return info.changes;
+    }
+    const info = this.structuredDb.prepare(`UPDATE pending_candidates SET status = 'ignored', updated_at = ? WHERE status = 'pending'`).run(now);
+    return info.changes;
   }
 
   markCandidatePrompted(id: number): void {
     this.structuredDb
-      .prepare(`UPDATE pending_candidates SET prompt_count = prompt_count + 1, last_prompt_ts = ? WHERE id = ?`)
-      .run(new Date().toISOString(), id);
+      .prepare(`UPDATE pending_candidates SET prompt_count = prompt_count + 1, last_prompt_ts = ?, updated_at = ? WHERE id = ?`)
+      .run(new Date().toISOString(), new Date().toISOString(), id);
   }
 
   expireCandidates(opts: { before: string; projectKey?: string }): number {
@@ -415,6 +512,145 @@ export class ThreadStore {
       .prepare(`SELECT COUNT(*) AS c FROM pending_candidates WHERE ${where.join(" AND ")}`)
       .get(...params) as { c: number };
     return row.c;
+  }
+
+  // ─── 产出/待办/水位（v7，MAX 批 1 地基）───
+
+  // 产出登记 + 写时建边（单事务）：produces(session→asset) + references(asset→source_event)。
+  // 与事件 append 跨库（events/structured 双库），无法同 SQLite 事务——事件已由 origin 幂等，
+  // 资产登记为结构化库内原子事务；调用方失败重试同事件采集（旁路可失败不阻塞）。
+  registerAsset(input: {
+    sessionId: string;
+    path: string;
+    title: string;
+    topic?: string;
+    scenario?: string;
+    sourceEvent?: number;
+    projectKey?: string;
+    isolation?: boolean;
+    ts?: string;
+  }): KnowledgeAsset {
+    const ts = input.ts ?? new Date().toISOString();
+    const tx = this.structuredDb.transaction(() => {
+      const row = this.structuredDb
+        .prepare(
+          `INSERT INTO knowledge_assets (path, title, topic, scenario, session_id, source_event, created_at, isolation)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+        )
+        .get(
+          input.path,
+          input.title,
+          input.topic ?? null,
+          input.scenario ?? null,
+          input.sessionId,
+          input.sourceEvent ?? null,
+          ts,
+          input.isolation ? 1 : 0,
+        ) as KnowledgeAsset;
+      this.addLineageEdge(input.sessionId, "session", null, "asset", row.id, "produces", {
+        ref: input.sessionId,
+        ts,
+      });
+      if (input.sourceEvent) {
+        this.addLineageEdge(input.sessionId, "asset", row.id, "event", input.sourceEvent, "references", { ts });
+      }
+      return row;
+    });
+    return tx();
+  }
+
+  listAssets(opts: { sessionId?: string; visibleToSession?: string; limit?: number } = {}): KnowledgeAsset[] {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (opts.sessionId) {
+      where.push("session_id = ?");
+      params.push(opts.sessionId);
+    }
+    if (opts.visibleToSession) {
+      where.push("(isolation = 0 OR session_id = ?)");
+      params.push(opts.visibleToSession);
+    }
+    const sql = `SELECT * FROM knowledge_assets${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY id DESC LIMIT ${opts.limit ?? 50}`;
+    return this.structuredDb.prepare(sql).all(...params) as KnowledgeAsset[];
+  }
+
+  getAsset(id: number): KnowledgeAsset | undefined {
+    return this.structuredDb.prepare(`SELECT * FROM knowledge_assets WHERE id = ?`).get(id) as KnowledgeAsset | undefined;
+  }
+
+  // 发现层（2.4）：最近 N 个非隔离、有产出的会话（各带最新产出标题/时间）
+  listActiveSessionsWithAssets(limit: number): Array<{ session_id: string; latest_title: string; latest_ts: string }> {
+    return this.structuredDb
+      .prepare(
+        `SELECT a.session_id, a.title AS latest_title, a.created_at AS latest_ts
+         FROM knowledge_assets a
+         JOIN (
+           SELECT session_id, MAX(created_at) AS m FROM knowledge_assets WHERE isolation = 0 GROUP BY session_id
+         ) b ON a.session_id = b.session_id AND a.created_at = b.m AND a.isolation = 0
+         ORDER BY a.created_at DESC
+         LIMIT ?`,
+      )
+      .all(limit) as Array<{ session_id: string; latest_title: string; latest_ts: string }>;
+  }
+
+  addTodo(input: { sessionId: string; text: string; basis?: string; projectKey?: string; isolation?: boolean; ts?: string }): Todo {
+    const row = this.structuredDb
+      .prepare(
+        `INSERT INTO todos (session_id, text, basis, status, created_at, project_key, isolation)
+         VALUES (?, ?, ?, 'pending', ?, ?, ?) RETURNING *`,
+      )
+      .get(
+        input.sessionId,
+        input.text,
+        input.basis ?? null,
+        input.ts ?? new Date().toISOString(),
+        input.projectKey ?? null,
+        input.isolation ? 1 : 0,
+      ) as Todo;
+    return row;
+  }
+
+  listTodos(opts: { sessionId?: string; projectKey?: string; status?: Todo["status"]; basis?: string; visibleToSession?: string; limit?: number } = {}): Todo[] {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (opts.sessionId) {
+      where.push("session_id = ?");
+      params.push(opts.sessionId);
+    }
+    if (opts.projectKey) {
+      where.push("project_key = ?");
+      params.push(opts.projectKey);
+    }
+    if (opts.status) {
+      where.push("status = ?");
+      params.push(opts.status);
+    }
+    if (opts.basis !== undefined) {
+      where.push("basis = ?");
+      params.push(opts.basis);
+    }
+    if (opts.visibleToSession) {
+      where.push("(isolation = 0 OR session_id = ?)");
+      params.push(opts.visibleToSession);
+    }
+    const sql = `SELECT * FROM todos${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY id DESC LIMIT ${opts.limit ?? 100}`;
+    return this.structuredDb.prepare(sql).all(...params) as Todo[];
+  }
+
+  updateTodoStatus(id: number, status: Todo["status"]): boolean {
+    const info = this.structuredDb.prepare(`UPDATE todos SET status = ? WHERE id = ?`).run(status, id);
+    return info.changes > 0;
+  }
+
+  getMeta(key: string): string | undefined {
+    const row = this.structuredDb.prepare(`SELECT value FROM thread_meta WHERE key = ?`).get(key) as { value: string } | undefined;
+    return row?.value;
+  }
+
+  setMeta(key: string, value: string): void {
+    this.structuredDb
+      .prepare(`INSERT INTO thread_meta (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
+      .run(key, value, new Date().toISOString());
   }
 
   append(
@@ -589,13 +825,14 @@ export class ThreadStore {
     const ts = opts.ts ?? new Date().toISOString();
     const goal = this.structuredDb
       .prepare(
-        `INSERT INTO goals (session_id, text, status, source_event, created_at, project_key, scope, origin, isolation)
-         VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?) RETURNING *`,
+        `INSERT INTO goals (session_id, text, status, source_event, created_at, updated_at, project_key, scope, origin, isolation)
+         VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
       )
       .get(
         sessionId,
         text,
         opts.sourceEvent ?? null,
+        ts,
         ts,
         opts.scope === "global" ? null : opts.projectKey ?? this.projectKey ?? null,
         opts.scope ?? "project",
@@ -640,9 +877,9 @@ export class ThreadStore {
   updateGoalStatus(sessionId: string, goalId: number, status: GoalStatus): Goal | undefined {
     return this.structuredDb
       .prepare(
-        `UPDATE goals SET status = ? WHERE id = ? AND session_id = ? RETURNING *`,
+        `UPDATE goals SET status = ?, updated_at = ? WHERE id = ? AND session_id = ? RETURNING *`,
       )
-      .get(status, goalId, sessionId) as Goal | undefined;
+      .get(status, new Date().toISOString(), goalId, sessionId) as Goal | undefined;
   }
 
   addFeedback(
@@ -658,14 +895,15 @@ export class ThreadStore {
     const ts = opts.ts ?? new Date().toISOString();
     return this.structuredDb
       .prepare(
-        `INSERT INTO feedback (session_id, text, kind, source_event, created_at, project_key, scope, origin, isolation)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+        `INSERT INTO feedback (session_id, text, kind, source_event, created_at, updated_at, project_key, scope, origin, isolation)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
       )
       .get(
         sessionId,
         text,
         kind,
         opts.sourceEvent ?? null,
+        ts,
         ts,
         opts.scope === "global" ? null : opts.projectKey ?? this.projectKey ?? null,
         opts.scope ?? "project",

@@ -1,8 +1,8 @@
-import { ThreadStore, applyAnalysis, deriveProjectKey } from "@thread-memory/core";
+import { ThreadStore, applyAnalysis, classifyReportEvent, classifyWriteEvent, deriveProjectKey, extractTitleFromContent, sedimentClosingTodos } from "@thread-memory/core";
 import { defaultPaths, extractLastAssistantTurn, parseHookEvent } from "@thread/adapter-qoder-cli";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 
 // 会话临时隔离指令识别：整条消息精确匹配白名单（开放项⑦定案，防讨论性语句误触发）
 const ISOLATE_RE = /^(?:\/isolate|[/／]isolate|隔离|开始隔离|进入隔离|临时隔离|静默|免打扰|别打扰)$/;
@@ -10,6 +10,26 @@ const UNISOLATE_RE = /^(?:\/unisolate|[/／]unisolate|解除隔离|退出隔离|
 const PUBLISH_CMD_RE = /^\/thread-publish\s+(goal|decision|feedback)\s+(\d+)$/;
 const PUBLISH_NL_RE = /^把(?:刚才|刚才的)?(?:这个)?(?:决策|决定|目标|偏好)(?:共享|公开|同步)(?:出去|给项目)?$/;
 const FEEDBACK_DEL_RE = /^\/feedback-del\s+(\d+)$/;
+const ASSET_CMD_RE = /^\/thread-asset\s+(\S+)(?:\s+--topic\s+(\S+))?$/;
+// 收尾词白名单（1.2 收尾自动沉淀，Qoder 无 turn/end 事件，收尾词消息即触发；幂等靠 basis 去重）
+const CLOSING_WORD_RE = /^(?:先收了|先收|收工了|收工|今天到这|明天继续|歇了|歇|先记|暂时这样)$/;
+
+function parseAssetCommand(body) {
+  const m = body.trim().match(ASSET_CMD_RE);
+  if (!m) {
+    return undefined;
+  }
+  return m[2] ? { path: m[1], topic: m[2] } : { path: m[1] };
+}
+
+function readAssetTitle(path, cwd) {
+  const resolved = isAbsolute(path) ? path : join(cwd, path);
+  try {
+    return extractTitleFromContent(readFileSync(resolved, "utf8").slice(0, 800), path);
+  } catch {
+    return extractTitleFromContent(undefined, path);
+  }
+}
 
 function tableForKind(kind) {
   return kind === "goal" ? "goals" : kind === "decision" ? "decisions" : "feedback";
@@ -136,8 +156,39 @@ try {
   try {
     if (event.kind === "user_message") {
       applyAnalysis(store, event.session_id, { user_msg: event.body }, { sourceEvent: appended.id, ts: event.ts, projectKey, origin, isolation: isolated });
+      // /thread-asset <path> [--topic <t>] 显式登记（0.2 显式登记入口）：source_event = 命令消息
+      const assetCmd = parseAssetCommand(event.body);
+      if (assetCmd) {
+        withBusyRetry(() => store.registerAsset({
+          sessionId: event.session_id,
+          path: assetCmd.path,
+          title: readAssetTitle(assetCmd.path, hookCwd),
+          topic: assetCmd.topic,
+          sourceEvent: appended.id,
+          projectKey,
+          isolation: isolated,
+        }));
+      }
+      // 收尾自动沉淀（1.2）：收尾词消息即触发（Qoder 无 turn 事件）；basis 去重幂等
+      if (CLOSING_WORD_RE.test(event.body.trim())) {
+        sedimentClosingTodos(store, event.session_id, { projectKey, isolation: isolated });
+      }
     } else if (event.kind === "assistant_message") {
       applyAnalysis(store, event.session_id, { assistant_msg: event.body }, { sourceEvent: appended.id, ts: event.ts, projectKey, origin, isolation: isolated });
+    } else if (event.kind === "tool_call") {
+      // 产出识别（0.2）：文档/报告产出 → knowledge_assets + produces/references 写时建边
+      const toolName = typeof event.meta?.tool_name === "string" ? event.meta.tool_name : "";
+      const classification = classifyWriteEvent(toolName, event.meta?.tool_input) ?? classifyReportEvent(toolName, event.meta?.tool_input);
+      if (classification) {
+        withBusyRetry(() => store.registerAsset({
+          sessionId: event.session_id,
+          path: classification.path,
+          title: classification.title,
+          sourceEvent: appended.id,
+          projectKey,
+          isolation: isolated,
+        }));
+      }
     }
   } catch (err) {
     console.error(`thread capture: analysis failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -153,6 +204,18 @@ function appendWithRetry(store, ev, opts, tries = 0) {
     if ((err?.code === "SQLITE_BUSY" || String(err).includes("database is locked")) && tries < 20) {
       sleepSync(100);
       return appendWithRetry(store, ev, opts, tries + 1);
+    }
+    throw err;
+  }
+}
+
+function withBusyRetry(fn, tries = 0) {
+  try {
+    return fn();
+  } catch (err) {
+    if ((err?.code === "SQLITE_BUSY" || String(err).includes("database is locked")) && tries < 20) {
+      sleepSync(100);
+      return withBusyRetry(fn, tries + 1);
     }
     throw err;
   }

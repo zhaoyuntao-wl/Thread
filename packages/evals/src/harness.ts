@@ -1,4 +1,18 @@
-import { applyTurn, buildStatusCard, queryMemory, ThreadStore } from "@thread-memory/core";
+import {
+  applyTurn,
+  buildStatusCard,
+  classifyReportEvent,
+  classifyWriteEvent,
+  getStateDelta,
+  navigate,
+  queryMemory,
+  renderStateDelta,
+  sedimentClosingTodos,
+  ThreadStore,
+} from "@thread-memory/core";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import type { Scenario, ScenarioExpectation } from "./scenarios.js";
 
 export interface CheckResult {
@@ -18,56 +32,89 @@ const BASE_TS = "2026-08-13T00:00:00.000Z";
 
 export function runScenario(store: ThreadStore, scenario: Scenario): ScenarioReport {
   const sessionId = `eval-${scenario.id}`;
+  const siblingId = `eval-${scenario.id}-other`;
+  // 场景临时目录：产出文件按内容落盘（nav cat 需要真实文件可读）；场景路径 → 临时路径映射供断言解析
+  const tmpDir = mkdtempSync(join(tmpdir(), "thread-eval-scenario-"));
+  const pathMap = new Map<string, string>();
   let t = 0;
   const nextTs = () => new Date(new Date(BASE_TS).getTime() + t++ * 1000).toISOString();
 
-  for (const turn of scenario.turns) {
-    if (turn.user) {
-      applyTurn(store, sessionId, { user_msg: turn.user }, { ts: nextTs() });
-    }
-    if (turn.assistant) {
-      applyTurn(store, sessionId, { assistant_msg: turn.assistant }, { ts: nextTs() });
-    }
-    if (turn.tool) {
-      const tool = turn.tool;
-      const event = store.append({
-        session_id: sessionId,
-        kind: "tool_call",
-        ts: nextTs(),
-        body: `${tool.name} 调用参数：${JSON.stringify(tool.input).slice(0, 500)}`,
-        meta: { tool_name: tool.name, file_path: tool.file_path, tool_input: tool.input },
-      });
-      if (tool.output) {
-        store.append({
-          session_id: sessionId,
-          kind: "tool_result",
+  const turnSession = (other: boolean | undefined): string => (other ? siblingId : sessionId);
+
+  try {
+    for (const turn of scenario.turns) {
+      const sid = turnSession(turn.other);
+      if (turn.user) {
+        applyTurn(store, sid, { user_msg: turn.user }, { ts: nextTs() });
+      }
+      if (turn.assistant) {
+        applyTurn(store, sid, { assistant_msg: turn.assistant }, { ts: nextTs() });
+      }
+      if (turn.tool) {
+        const tool = turn.tool;
+        // 产出管线仿真（批 1 双适配器同规则）：content 落盘 + file_path 重写为临时路径
+        let filePath = tool.file_path;
+        if (filePath && typeof tool.input.content === "string") {
+          const mapped = join(tmpDir, filePath);
+          mkdirSync(dirname(mapped), { recursive: true });
+          writeFileSync(mapped, tool.input.content, "utf8");
+          pathMap.set(filePath, mapped);
+          filePath = mapped;
+        }
+        const input = filePath ? { ...tool.input, file_path: filePath } : tool.input;
+        const event = store.append({
+          session_id: sid,
+          kind: "tool_call",
           ts: nextTs(),
-          body: tool.output,
-          meta: { tool_name: tool.name, file_path: tool.file_path },
+          body: `${tool.name} 调用参数：${JSON.stringify(input).slice(0, 500)}`,
+          meta: { tool_name: tool.name, file_path: filePath, tool_input: input },
+        });
+        const classification = classifyWriteEvent(tool.name, input) ?? classifyReportEvent(tool.name, input);
+        if (classification) {
+          store.registerAsset({
+            sessionId: sid,
+            path: classification.path,
+            title: classification.title,
+            sourceEvent: event.id,
+            projectKey: store.projectKey,
+          });
+        }
+        if (tool.output) {
+          store.append({
+            session_id: sid,
+            kind: "tool_result",
+            ts: nextTs(),
+            body: tool.output,
+            meta: { tool_name: tool.name, file_path: filePath },
+          });
+        }
+      }
+      if (turn.compact) {
+        store.append({
+          session_id: sid,
+          kind: "compact_checkpoint",
+          ts: nextTs(),
+          body: turn.compact,
+          meta: { trigger: "eval" },
         });
       }
-      void event;
+      if (turn.sediment) {
+        sedimentClosingTodos(store, sid, { projectKey: store.projectKey });
+      }
     }
-    if (turn.compact) {
-      store.append({
-        session_id: sessionId,
-        kind: "compact_checkpoint",
-        ts: nextTs(),
-        body: turn.compact,
-        meta: { trigger: "eval" },
-      });
-    }
-  }
 
-  const checks: CheckResult[] = scenario.expectations.map((exp) =>
-    checkExpectation(store, sessionId, exp),
-  );
-  return {
-    scenarioId: scenario.id,
-    title: scenario.title,
-    passed: checks.every((c) => c.passed),
-    checks,
-  };
+    const checks: CheckResult[] = scenario.expectations.map((exp) =>
+      checkExpectation(store, sessionId, siblingId, pathMap, exp),
+    );
+    return {
+      scenarioId: scenario.id,
+      title: scenario.title,
+      passed: checks.every((c) => c.passed),
+      checks,
+    };
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
 }
 
 export function runAll(
@@ -81,6 +128,8 @@ export function runAll(
 function checkExpectation(
   store: ThreadStore,
   sessionId: string,
+  siblingId: string,
+  pathMap: Map<string, string>,
   exp: ScenarioExpectation,
 ): CheckResult {
   switch (exp.kind) {
@@ -141,6 +190,86 @@ function checkExpectation(
         expectation: `status-card contains "${exp.contains}"`,
         passed: card.includes(exp.contains),
         detail: card ? `状态卡命中: ${card.includes(exp.contains) ? "是" : "否"}` : "状态卡为空",
+      };
+    }
+    case "asset": {
+      const assets = store.listAssets({ sessionId });
+      const hit = assets.find((a) => a.title.includes(exp.contains));
+      return {
+        expectation: `asset title contains "${exp.contains}"`,
+        passed: Boolean(hit),
+        detail: hit ? `命中: ${hit.title}（${hit.path}）` : `未命中，现有产出: ${assets.map((a) => a.title).join(" | ") || "无"}`,
+      };
+    }
+    case "asset-edge": {
+      const assets = store.listAssets({ sessionId });
+      const target = assets[0];
+      const edges = target ? store.getRelatedEdges(sessionId, "asset", target.id) : [];
+      return {
+        expectation: `asset edges >= ${exp.minEdges}`,
+        passed: edges.length >= exp.minEdges,
+        detail: target ? `产出 #${target.id}（${target.title}）共 ${edges.length} 条边` : "无产出",
+      };
+    }
+    case "todo": {
+      const todos = store.listTodos({ sessionId });
+      const hit = todos.find((td) => td.text.includes(exp.contains));
+      return {
+        expectation: `todo contains "${exp.contains}"`,
+        passed: Boolean(hit),
+        detail: hit ? `命中: ${hit.text}（${hit.basis ?? "无依据"}）` : `未命中，现有待办: ${todos.map((td) => td.text).join(" | ") || "无"}`,
+      };
+    }
+    case "todo-count": {
+      const todos = store.listTodos({ sessionId });
+      return {
+        expectation: `todo count == ${exp.count}`,
+        passed: todos.length === exp.count,
+        detail: `现有待办 ${todos.length} 条`,
+      };
+    }
+    case "nav": {
+      const target = exp.target ? pathMap.get(exp.target) ?? exp.target : exp.target;
+      const result = navigate(store, {
+        nav: exp.nav,
+        target,
+        query: exp.query,
+        sessionId,
+        viewerSessionId: sessionId,
+      });
+      const text = `${result.title}\n${result.items.map((i) => i.label).join("\n")}`;
+      return {
+        expectation: `nav ${exp.nav}${target ? ` ${target}` : ""}${exp.query ? ` "${exp.query}"` : ""} contains "${exp.contains}"`,
+        passed: text.includes(exp.contains),
+        detail: text.slice(0, 200),
+      };
+    }
+    case "delta": {
+      const delta = getStateDelta(store, {
+        projectKey: store.projectKey,
+        since: BASE_TS,
+        excludeSessionId: sessionId,
+        viewerSessionId: sessionId,
+      });
+      const text = renderStateDelta(delta) ?? "";
+      void siblingId;
+      return {
+        expectation: `delta contains "${exp.contains}"`,
+        passed: text.includes(exp.contains),
+        detail: text ? text.slice(0, 200) : "delta 为空",
+      };
+    }
+    case "card-situation": {
+      const card = buildStatusCard(store, {
+        sessionId,
+        projectKey: store.projectKey,
+        budgetLines: 100,
+        situation: exp.situation,
+      });
+      return {
+        expectation: `card(${exp.situation}) contains "${exp.contains}"`,
+        passed: card.includes(exp.contains),
+        detail: card.includes(exp.contains) ? "命中" : `状态卡前 120 字: ${card.slice(0, 120)}`,
       };
     }
   }

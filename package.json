@@ -20,6 +20,7 @@
     "@thread/adapter-qoder-cli": "workspace:*",
     "@thread-memory/core": "workspace:*",
     "@types/node": "^24.0.0",
+    "better-sqlite3": "^12.0.0",
     "eslint": "^9.0.0",
     "typescript": "^5.5.0",
     "typescript-eslint": "^8.0.0",

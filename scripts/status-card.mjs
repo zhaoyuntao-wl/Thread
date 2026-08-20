@@ -1,4 +1,4 @@
-import { ThreadStore, buildStatusCard, deriveProjectKey, defaultPaths } from "@thread-memory/core";
+import { ThreadStore, buildStatusCard, deriveProjectKey, defaultPaths, getStateDelta, renderStateDelta } from "@thread-memory/core";
 import { readFileSync } from "node:fs";
 
 let raw;
@@ -26,10 +26,26 @@ const projectKey = deriveProjectKey(hookCwd);
 const paths = defaultPaths(hookCwd);
 
 let card = "[Thread 会话记忆状态卡]";
+let deltaText = "";
 try {
   const store = new ThreadStore({ eventsPath: paths.eventsDbPath, structuredPath: paths.structuredDbPath });
   try {
     card = buildStatusCard(store, { sessionId, projectKey, budgetLines: 100, isolated: store.getSessionIsolation(sessionId) });
+    // G5 跨会话 delta（2.3.2）：水位判定，他代理变更才追加（首轮水位初始化不重放历史）
+    if (!store.getSessionIsolation(sessionId)) {
+      const key = `lastDeltaAt:${sessionId}`;
+      const since = store.getMeta(key);
+      if (since === undefined) {
+        store.setMeta(key, new Date().toISOString());
+      } else {
+        const delta = getStateDelta(store, { projectKey, since, excludeSessionId: sessionId, viewerSessionId: sessionId });
+        const text = renderStateDelta(delta);
+        if (text) {
+          deltaText = text;
+          store.setMeta(key, new Date().toISOString());
+        }
+      }
+    }
   } finally {
     store.close();
   }
@@ -38,5 +54,5 @@ try {
 }
 
 process.stdout.write(
-  JSON.stringify({ hookSpecificOutput: { hookEventName, additionalContext: card } }),
+  JSON.stringify({ hookSpecificOutput: { hookEventName, additionalContext: deltaText ? `${card}\n\n${deltaText}` : card } }),
 );
