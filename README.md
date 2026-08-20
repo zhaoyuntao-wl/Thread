@@ -20,6 +20,26 @@ on demand — goals, decisions, feedback, and lineage stay intact across long ta
 - **Confirmed decisions**: user decision statements are staged as candidates and
   surfaced via a dialog (confirm / cancel / postpone) — nothing unconfirmed ever
   becomes a formal decision.
+- **Chinese retrieval**: BM25 with jieba word segmentation indexes the event
+  stream on write — Chinese queries hit word-level instead of falling apart on
+  single characters.
+
+## Why it's different
+
+Most memory plugins store *knowledge* — facts distilled by the model and recalled
+later. Thread stores *decisions and goals as first-class structured state* with
+their evolution (superseded/revoked history), captured deterministically by rules
+rather than LLM distillation. The difference shows up in the hardest cases:
+
+- **Across compaction**: when a long session gets compressed, Thread re-anchors
+  goals and decisions in the status card and keeps details retrievable — not
+  "best-effort from a summary".
+- **Across sessions**: a new session auto-continues from prior decisions instead
+  of asking you to re-explain.
+- **Provably**: the regression suite (`pnpm eval`) runs scenario-level fidelity
+  checks — decisions survive compaction, goals don't drift, answers are
+  re-findable — as a CI gate. It checks the *point* of a memory layer (fidelity
+  across compaction and sessions), not just unit coverage.
 
 ## Architecture
 
