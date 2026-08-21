@@ -63,7 +63,7 @@ describe("capture.mjs production pipeline (B④ 双库)", () => {
     expect(store.getActiveGoals("e2e-1").map((g) => g.text)).toEqual(["帮我实现登录功能"]);
   });
 
-  it("captures assistant replies from the transcript and proposes decisions", () => {
+  it("captures assistant replies from the transcript without NL proposals（2026-08-21 结构通道化）", () => {
     const transcript = join(dir, "e2e.jsonl");
     writeFileSync(
       transcript,
@@ -86,7 +86,59 @@ describe("capture.mjs production pipeline (B④ 双库)", () => {
     const events = store.getRecentEvents("e2e-1", 10);
     const assistant = events.find((e) => e.kind === "assistant_message");
     expect(assistant?.body).toBe("我记下了使用 JWT 做认证");
-    expect(store.getLatestProposed("e2e-1")?.text).toBe("使用 JWT 做认证");
+    // assistant 文本不再提案决策（模型通道 = record_decision 工具）
+    expect(store.getDecisions("e2e-1")).toHaveLength(0);
+  });
+
+  it("/thread-reg dec 命令创建 active 决策（用户显式通道；2026-08-21 命令重构）", () => {
+    capture({
+      session_id: "e2e-1",
+      hook_event_name: "UserPromptSubmit",
+      prompt: "/thread-reg dec 使用 JWT 做认证",
+      cwd: repoRoot,
+    });
+    store.close();
+    store = new ThreadStore({ eventsPath, structuredPath });
+    const decisions = store.getActiveDecisions("e2e-1");
+    expect(decisions.some((d) => d.text === "使用 JWT 做认证")).toBe(true);
+  });
+
+  it("read 工具流（md 内容经 tool 事件进入）→ 结构化表零行（2026-08-21 读文件免疫）", () => {
+    const mdContent = [
+      "# 角色",
+      "你是一个资深工程师",
+      "帮我实现登录模块",
+      "## 要求",
+      "- 支持 JWT",
+      "- 以后优先用 pnpm",
+    ].join("\n");
+    capture({
+      session_id: "e2e-3",
+      hook_event_name: "PreToolUse",
+      tool_name: "read",
+      tool_use_id: "call_read_1",
+      tool_input: { file_path: "prompt.md" },
+      cwd: repoRoot,
+    });
+    capture({
+      session_id: "e2e-3",
+      hook_event_name: "PostToolUse",
+      tool_name: "read",
+      tool_use_id: "call_read_1",
+      tool_input: { file_path: "prompt.md" },
+      tool_response: { kind: "completed", content: mdContent },
+      cwd: repoRoot,
+    });
+    store.close();
+    store = new ThreadStore({ eventsPath, structuredPath });
+    expect(store.getActiveGoals("e2e-3")).toHaveLength(0);
+    expect(store.getDecisions("e2e-3")).toHaveLength(0);
+    expect(store.getFeedback("e2e-3")).toHaveLength(0);
+    // 事件流水保留原文（真相源不变）
+    const results = store
+      .getRecentEvents("e2e-3", 10)
+      .filter((e) => e.kind === "tool_result");
+    expect(results.length).toBeGreaterThan(0);
   });
 
   it("records file lineage edges from tool results", () => {

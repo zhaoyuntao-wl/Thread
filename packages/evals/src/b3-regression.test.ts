@@ -20,13 +20,12 @@ afterAll(() => {
 describe("B③ 回归：跨会话自动继承（轻量版）", () => {
   it("新会话开场合并视图继承上一项目会话的 active 决策与全局反馈", () => {
     // 会话 A（旧）：建立 project 级决策 + 全局反馈
-    store.proposeDecision("old-s1", "本项目用 pnpm 管理依赖", {
+    store.addDecision("old-s1", "本项目用 pnpm 管理依赖", {
       scope: "project",
       projectKey: "proj-inherit",
       origin: "eval://b3/dec/1",
       ts: "2026-08-14T00:00:00.000Z",
     });
-    store.confirmLatestProposed("old-s1", { ts: "2026-08-14T00:00:01.000Z" });
     store.addFeedback("old-s1", "全局偏好：测试用 vitest", "preference", {
       scope: "global",
       origin: "eval://b3/fb/1",
@@ -63,12 +62,11 @@ describe("B③ 回归：跨会话自动继承（轻量版）", () => {
   });
 
   it("本会话新决策不挤掉继承内容，且当前会话默认 project 级成为后续会话的继承源", () => {
-    store.proposeDecision("new-s3", "本会话提出用 pnpm", {
+    store.addDecision("new-s3", "本会话提出用 pnpm", {
       projectKey: "proj-inherit",
       origin: "eval://b3/dec/2",
       ts: "2026-08-14T00:00:05.000Z",
     });
-    store.confirmLatestProposed("new-s3", { ts: "2026-08-14T00:00:06.000Z" });
     const later = store.getActiveDecisionsMerged("future-s1", "proj-inherit");
     expect(later.some((d) => d.text.includes("本会话提出用 pnpm"))).toBe(true);
   });

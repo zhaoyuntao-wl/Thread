@@ -31,6 +31,11 @@ try {
   const store = new ThreadStore({ eventsPath: paths.eventsDbPath, structuredPath: paths.structuredDbPath });
   try {
     card = buildStatusCard(store, { sessionId, projectKey, budgetLines: 100, isolated: store.getSessionIsolation(sessionId) });
+    // 候选超时接线（2026-08-20 收口）：超龄 pending → ignored（防堆积；原文在事件流水，决策不丢）
+    const ttlDays = Number(process.env.THREAD_CANDIDATE_TTL_DAYS ?? 14);
+    if (ttlDays > 0) {
+      store.expireCandidates({ before: new Date(Date.now() - ttlDays * 86400000).toISOString(), projectKey });
+    }
     // G5 跨会话 delta（2.3.2）：水位判定，他代理变更才追加（首轮水位初始化不重放历史）
     if (!store.getSessionIsolation(sessionId)) {
       const key = `lastDeltaAt:${sessionId}`;

@@ -485,16 +485,19 @@ export class ThreadStore {
       .run(new Date().toISOString(), new Date().toISOString(), id);
   }
 
+  // 候选超时（2026-08-20 收口修订）：pending 候选超龄 → ignored（原文仍在事件流水 + 行保留，决策不丢）。
+  // 覆盖两类：被提示过（last_prompt_ts 超龄）与从未被提示（created_at 超龄，headless 无弹窗堆积场景）
   expireCandidates(opts: { before: string; projectKey?: string }): number {
+    const where = `status = 'pending' AND COALESCE(last_prompt_ts, created_at) < ?`;
     if (opts.projectKey) {
       const info = this.structuredDb
-        .prepare(`UPDATE pending_candidates SET status = 'ignored' WHERE status = 'pending' AND project_key = ? AND last_prompt_ts IS NOT NULL AND last_prompt_ts < ?`)
-        .run(opts.projectKey, opts.before);
+        .prepare(`UPDATE pending_candidates SET status = 'ignored', updated_at = ? WHERE ${where} AND project_key = ?`)
+        .run(new Date().toISOString(), opts.before, opts.projectKey);
       return info.changes;
     }
     const info = this.structuredDb
-      .prepare(`UPDATE pending_candidates SET status = 'ignored' WHERE status = 'pending' AND last_prompt_ts IS NOT NULL AND last_prompt_ts < ?`)
-      .run(opts.before);
+      .prepare(`UPDATE pending_candidates SET status = 'ignored', updated_at = ? WHERE ${where}`)
+      .run(new Date().toISOString(), opts.before);
     return info.changes;
   }
 
@@ -532,6 +535,19 @@ export class ThreadStore {
   }): KnowledgeAsset {
     const ts = input.ts ?? new Date().toISOString();
     const tx = this.structuredDb.transaction(() => {
+      // 路径幂等（2026-08-21 狗粮实证）：同一文件每次 write/edit 都会触发登记 → 同 path 重复堆行
+      //（生产 README 同 path 12 行）。可见范围（isolation=0 或本会话）内已有同 path 行 →
+      // 只刷新标题并返回既有行，不再插入；血缘边在首次登记时已建立。
+      const existing = this.structuredDb
+        .prepare(`SELECT * FROM knowledge_assets WHERE path = ? AND (isolation = 0 OR session_id = ?) ORDER BY id LIMIT 1`)
+        .get(input.path, input.sessionId) as KnowledgeAsset | undefined;
+      if (existing) {
+        if (existing.title !== input.title) {
+          this.structuredDb.prepare(`UPDATE knowledge_assets SET title = ? WHERE id = ?`).run(input.title, existing.id);
+          existing.title = input.title;
+        }
+        return existing;
+      }
       const row = this.structuredDb
         .prepare(
           `INSERT INTO knowledge_assets (path, title, topic, scenario, session_id, source_event, created_at, isolation)
@@ -576,6 +592,22 @@ export class ThreadStore {
 
   getAsset(id: number): KnowledgeAsset | undefined {
     return this.structuredDb.prepare(`SELECT * FROM knowledge_assets WHERE id = ?`).get(id) as KnowledgeAsset | undefined;
+  }
+
+  // 产出解除登记（2026-08-21 /thread-rev ast）：硬删除 + 血缘边清理（双库：session→asset produces 在结构化库，
+  // asset→event references 在事件库）——事件流水保留原文，只解除结构化登记。
+  deleteAsset(id: number): boolean {
+    const exists = this.structuredDb.prepare(`SELECT id FROM knowledge_assets WHERE id = ?`).get(id) as { id: number } | undefined;
+    if (!exists) {
+      return false;
+    }
+    this.structuredDb.prepare(`DELETE FROM knowledge_assets WHERE id = ?`).run(id);
+    for (const db of [this.structuredDb, this.eventsDb]) {
+      db
+        .prepare(`DELETE FROM lineage_edges WHERE (src_type = 'asset' AND src_id = ?) OR (dst_type = 'asset' AND dst_id = ?)`)
+        .run(id, id);
+    }
+    return true;
   }
 
   // 发现层（2.4）：最近 N 个非隔离、有产出的会话（各带最新产出标题/时间）
@@ -855,6 +887,13 @@ export class ThreadStore {
       .all(sessionId) as Goal[];
   }
 
+  // 目标全量（2026-08-21 /thread-reg gol 无参列表的 id 可见来源）：含 active/completed/abandoned
+  getGoals(sessionId: string): Goal[] {
+    return this.structuredDb
+      .prepare(`SELECT * FROM goals WHERE session_id = ? ORDER BY id DESC`)
+      .all(sessionId) as Goal[];
+  }
+
   getFeedback(sessionId: string, limit = 5): FeedbackRow[] {
     return this.structuredDb
       .prepare(`SELECT * FROM feedback WHERE session_id = ? ORDER BY id DESC LIMIT ?`)
@@ -875,11 +914,19 @@ export class ThreadStore {
   }
 
   updateGoalStatus(sessionId: string, goalId: number, status: GoalStatus): Goal | undefined {
-    return this.structuredDb
+    const goal = this.structuredDb
       .prepare(
         `UPDATE goals SET status = ?, updated_at = ? WHERE id = ? AND session_id = ? RETURNING *`,
       )
       .get(status, new Date().toISOString(), goalId, sessionId) as Goal | undefined;
+    // 目标 → 待办生命周期同步（2026-08-20 关闭即沉淀）：收尾沉淀产生的 todo 随目标状态自愈
+    if (goal) {
+      const todoStatus = status === "completed" ? "done" : status === "abandoned" ? "dropped" : "pending";
+      this.structuredDb
+        .prepare(`UPDATE todos SET status = ? WHERE session_id = ? AND basis = ? AND status = 'pending'`)
+        .run(todoStatus, sessionId, `goal:${goalId}`);
+    }
+    return goal;
   }
 
   addFeedback(
@@ -974,60 +1021,87 @@ export class ThreadStore {
       .get(origin) as Record<string, unknown> | undefined;
   }
 
-  confirmLatestProposed(
-    sessionId: string,
-    opts: { ts?: string } = {},
-  ): Decision | undefined {
-    const target = this.structuredDb
-      .prepare(
-        `SELECT * FROM decisions WHERE session_id = ? AND status = 'proposed' ORDER BY id DESC LIMIT 1`,
-      )
-      .get(sessionId) as Decision | undefined;
-    if (!target) {
-      return undefined;
-    }
-    return this.transitionDecision(target, "active", opts.ts);
+  // ─── 显式决策通道（2026-08-21 结构通道化）───
+  // NL 判定停用后，决策只经三条显式路径：/thread-decision（用户命令）、record_decision（模型工具）、
+  // /thread-pending update（候选转正）。全部直接落 active——显式意图不再走 propose→confirm 两段。
+
+  // 命令/工具创建：origin/文本双幂等沿用 proposeDecision，插入即转 active
+  addDecision(sessionId: string, text: string, opts: StructuredWriteOptions = {}): Decision {
+    const d = this.proposeDecision(sessionId, text, opts);
+    return d.status === "active" ? d : this.transitionDecision(d, "active", opts.ts);
   }
 
-  revokeLatestActive(
-    sessionId: string,
-    opts: { ts?: string } = {},
-  ): Decision | undefined {
-    const target = this.structuredDb
-      .prepare(
-        `SELECT * FROM decisions WHERE session_id = ? AND status IN ('proposed', 'active') ORDER BY id DESC LIMIT 1`,
-      )
-      .get(sessionId) as Decision | undefined;
-    if (!target) {
+  // 候选转正（修 1.3 语义缺口）：旧 confirm 只翻候选状态、从不落 decisions 行 = 死路。
+  // update <id> [新文本] → 候选 → active 决策；候选 session/项目/隔离/血缘随行，文本可先修正。
+  promoteCandidate(id: number, newText?: string): Decision | undefined {
+    const candidate = this.structuredDb
+      .prepare(`SELECT * FROM pending_candidates WHERE id = ? AND status = 'pending'`)
+      .get(id) as PendingCandidate | undefined;
+    if (!candidate) {
       return undefined;
     }
-    return this.transitionDecision(target, "revoked", opts.ts);
+    const text = (newText ?? "").trim() || candidate.text;
+    const decision = this.addDecision(candidate.session_id, text, {
+      projectKey: candidate.project_key ?? undefined,
+      isolation: candidate.isolation === 1,
+      sourceEvent: candidate.source_event ?? undefined,
+    });
+    this.structuredDb
+      .prepare(`UPDATE pending_candidates SET status = 'confirmed', updated_at = ? WHERE id = ?`)
+      .run(new Date().toISOString(), id);
+    return decision;
   }
 
-  supersedeLatestActive(
+  // 决策删除（feedback-del 同风格）：硬删除 + 血缘边（双库）/决策-实体边/superseded_by 引用连带清理。
+  // 事件流水保留原文 = 真相源不变，删除只影响结构化表视图。
+  deleteDecision(id: number): boolean {
+    const exists = this.structuredDb.prepare(`SELECT id FROM decisions WHERE id = ?`).get(id) as { id: number } | undefined;
+    if (!exists) {
+      return false;
+    }
+    this.structuredDb.prepare(`DELETE FROM decisions WHERE id = ?`).run(id);
+    this.structuredDb.prepare(`DELETE FROM decision_entities WHERE decision_id = ?`).run(id);
+    for (const db of [this.structuredDb, this.eventsDb]) {
+      db
+        .prepare(`DELETE FROM lineage_edges WHERE (src_type = 'decision' AND src_id = ?) OR (dst_type = 'decision' AND dst_id = ?)`)
+        .run(id, id);
+    }
+    this.structuredDb.prepare(`UPDATE decisions SET superseded_by = NULL WHERE superseded_by = ?`).run(id);
+    return true;
+  }
+
+  // 按 id 取代（/thread-decision <text> --supersedes <id>）：旧决策转 superseded + supersedes 血缘边；
+  // replacement 继承目标行的 project_key/scope/isolation（修正旧 latest 版 replacement 丢项目字段的缺陷）。
+  supersedeDecisionById(
     sessionId: string,
+    id: number,
     replacementText: string,
     opts: { sourceEvent?: number; ts?: string } = {},
   ): { superseded: Decision; replacement: Decision } | undefined {
     const target = this.structuredDb
-      .prepare(
-        `SELECT * FROM decisions WHERE session_id = ? AND status IN ('proposed', 'active') ORDER BY id DESC LIMIT 1`,
-      )
-      .get(sessionId) as Decision | undefined;
-    const ts = opts.ts ?? new Date().toISOString();
+      .prepare(`SELECT * FROM decisions WHERE id = ? AND session_id = ? AND status IN ('proposed', 'active')`)
+      .get(id, sessionId) as Decision | undefined;
     if (!target) {
       return undefined;
     }
+    const ts = opts.ts ?? new Date().toISOString();
     const replacement = this.structuredDb
       .prepare(
-        `INSERT INTO decisions (session_id, text, status, superseded_by, source_event, created_at, updated_at, isolation)
-         VALUES (?, ?, 'active', NULL, ?, ?, ?, ?) RETURNING *`,
+        `INSERT INTO decisions (session_id, text, status, superseded_by, source_event, created_at, updated_at, project_key, scope, origin, isolation)
+         VALUES (?, ?, 'active', NULL, ?, ?, ?, ?, ?, NULL, ?) RETURNING *`,
       )
-      .get(sessionId, replacementText, opts.sourceEvent ?? null, ts, ts, target.isolation ?? 0) as Decision;
+      .get(
+        sessionId,
+        replacementText,
+        opts.sourceEvent ?? null,
+        ts,
+        ts,
+        target.project_key ?? null,
+        target.scope ?? "project",
+        target.isolation ?? 0,
+      ) as Decision;
     const superseded = this.transitionDecision(target, "superseded", ts, replacement.id);
-    this.addLineageEdge(sessionId, "decision", target.id, "decision", replacement.id, "supersedes", {
-      ts,
-    });
+    this.addLineageEdge(sessionId, "decision", target.id, "decision", replacement.id, "supersedes", { ts });
     return { superseded, replacement };
   }
 
@@ -1135,20 +1209,34 @@ export class ThreadStore {
     return row?.isolated === 1;
   }
 
-  // 沉淀：清除指定结构化行的隔离标记（隔离会话期间产生的决策按需转共享）
-  unisolateRow(sessionId: string, table: "goals" | "decisions" | "feedback", id: number): boolean {
+  // 沉淀：清除指定结构化行的隔离标记（隔离会话期间产生的行按需转共享；2026-08-21 覆盖 ast 产出）
+  unisolateRow(sessionId: string, table: "goals" | "decisions" | "feedback" | "knowledge_assets", id: number): boolean {
     const row = this.structuredDb
       .prepare(`UPDATE ${table} SET isolation = 0 WHERE id = ? AND session_id = ? RETURNING id`)
       .get(id, sessionId) as { id: number } | undefined;
     return row !== undefined;
   }
 
-  getLatestProposed(sessionId: string): Decision | undefined {
-    return this.structuredDb
-      .prepare(
-        `SELECT * FROM decisions WHERE session_id = ? AND status = 'proposed' ORDER BY id DESC LIMIT 1`,
-      )
-      .get(sessionId) as Decision | undefined;
+  // 隔离行清单（2026-08-21：/thread-pub 无参列表——pub 只对 isolation=1 行生效，此清单即用户可见 id 来源；
+  // 2026-08-21 扩展 ast 资源：隔离期登记的产出同样可转共享）
+  listIsolatedRows(sessionId: string): Array<{ kind: "ast" | "goal" | "decision" | "feedback"; id: number; text: string }> {
+    const rows: Array<{ kind: "ast" | "goal" | "decision" | "feedback"; id: number; text: string }> = [];
+    const assets = this.structuredDb
+      .prepare(`SELECT id, path, title FROM knowledge_assets WHERE session_id = ? AND isolation = 1 ORDER BY id`)
+      .all(sessionId) as Array<{ id: number; path: string; title: string }>;
+    for (const r of assets) {
+      rows.push({ kind: "ast", id: r.id, text: r.title || r.path });
+    }
+    for (const table of ["goals", "decisions", "feedback"] as const) {
+      const found = this.structuredDb
+        .prepare(`SELECT id, text FROM ${table} WHERE session_id = ? AND isolation = 1 ORDER BY id`)
+        .all(sessionId) as Array<{ id: number; text: string }>;
+      const kind = table === "goals" ? "goal" : table === "decisions" ? "decision" : "feedback";
+      for (const r of found) {
+        rows.push({ kind, id: r.id, text: r.text });
+      }
+    }
+    return rows;
   }
 
   getDecisions(sessionId: string, status?: DecisionStatus): Decision[] {

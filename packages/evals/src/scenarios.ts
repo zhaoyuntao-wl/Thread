@@ -7,10 +7,25 @@ export interface ScenarioTool {
   output?: string;
 }
 
+// 2026-08-21 结构通道化：决策/偏好经显式通道（命令/工具）采集，场景用 op 表达等价动作。
+// harness 会同步落事件（record_decision tool_call / /thread-feedback user_message），保持血缘与召回语义。
+export interface ScenarioDecisionOp {
+  action: "create";
+  text: string;
+  supersedes?: "latest" | number;
+}
+
+export interface ScenarioFeedbackOp {
+  text: string;
+  kind?: "preference" | "correction";
+}
+
 export interface ScenarioTurn {
   user?: string;
   assistant?: string;
   tool?: ScenarioTool;
+  decision?: ScenarioDecisionOp;
+  feedback?: ScenarioFeedbackOp;
   compact?: string;
   // 双代理 delta 场景：true = 事件路由到兄弟会话（他代理），false/缺省 = 主会话
   other?: boolean;
@@ -21,6 +36,7 @@ export interface ScenarioTurn {
 export type ScenarioExpectation =
   | { kind: "goal"; contains: string }
   | { kind: "decision"; contains: string; status: DecisionStatus }
+  | { kind: "decision-query"; contains: string }
   | { kind: "recall"; query: string; mustContain: string }
   | { kind: "lineage"; file: string; minEdges: number }
   | { kind: "compact"; contains: string }
@@ -46,18 +62,17 @@ export const SCENARIOS: Scenario[] = [
     title: "长任务决策链：认证方案演进与撤销",
     turns: [
       { user: "帮我实现用户登录功能" },
-      { assistant: "我记下了使用 JWT 做认证" },
-      { user: "好的" },
+      { decision: { action: "create", text: "使用 JWT 做认证" } },
       { tool: { name: "Write", file_path: "src/auth.ts", input: { file_path: "src/auth.ts", content: "jwt sign" }, output: "已创建 src/auth.ts（JWT 认证）" } },
-      { user: "改用 Session 吧" },
+      { decision: { action: "create", text: "改用 Session 认证", supersedes: "latest" } },
       { tool: { name: "Edit", file_path: "src/auth.ts", input: { file_path: "src/auth.ts" }, output: "已改为 Session 认证" } },
-      { user: "以后密码统一用 bcrypt 加密" },
+      { feedback: { text: "密码统一用 bcrypt 加密", kind: "preference" } },
     ],
     expectations: [
       { kind: "goal", contains: "登录" },
       { kind: "decision", contains: "JWT", status: "superseded" },
       { kind: "decision", contains: "Session", status: "active" },
-      { kind: "recall", query: "Session 认证", mustContain: "Session" },
+      { kind: "decision-query", contains: "Session 认证" },
       { kind: "recall", query: "bcrypt 加密", mustContain: "bcrypt" },
       { kind: "lineage", file: "src/auth.ts", minEdges: 2 },
     ],
@@ -69,15 +84,14 @@ export const SCENARIOS: Scenario[] = [
       { user: "帮我搭建项目脚手架" },
       { tool: { name: "Bash", input: { command: "pnpm init" }, output: "package.json 已创建" } },
       { user: "再帮我实现 CI 流水线" },
-      { assistant: "我记下了 CI 用 GitHub Actions" },
-      { user: "嗯" },
+      { decision: { action: "create", text: "CI 用 GitHub Actions" } },
       { tool: { name: "Write", file_path: ".github/workflows/ci.yml", input: { file_path: ".github/workflows/ci.yml" }, output: "CI 已配置" } },
     ],
     expectations: [
       { kind: "goal", contains: "脚手架" },
       { kind: "goal", contains: "CI" },
       { kind: "decision", contains: "GitHub Actions", status: "active" },
-      { kind: "recall", query: "GitHub Actions", mustContain: "GitHub Actions" },
+      { kind: "decision-query", contains: "GitHub Actions" },
     ],
   },
   {
@@ -85,8 +99,7 @@ export const SCENARIOS: Scenario[] = [
     title: "重复提问防护：已答信息可检索召回",
     turns: [
       { user: "数据库用 SQLite，用 better-sqlite3" },
-      { assistant: "我记下了存储用 better-sqlite3" },
-      { user: "好的" },
+      { decision: { action: "create", text: "存储用 better-sqlite3" } },
       { user: "帮我实现事件存储" },
       { tool: { name: "Write", file_path: "src/store.ts", input: { file_path: "src/store.ts" }, output: "事件存储已实现" } },
       { user: "存储层用什么库来着" },
@@ -116,15 +129,12 @@ export const SCENARIOS: Scenario[] = [
     title: "跨压缩保真：压缩边界后决策/目标/细节可回拉",
     turns: [
       { user: "帮我实现用户登录功能" },
-      { assistant: "我记下了使用 JWT 做认证" },
-      { user: "好的" },
+      { decision: { action: "create", text: "使用 JWT 做认证" } },
       { tool: { name: "Write", file_path: "src/auth.ts", input: { file_path: "src/auth.ts" }, output: "JWT 登录已实现" } },
       { user: "再帮我实现注册功能，密码统一用 bcrypt" },
-      { assistant: "我记下了密码用 bcrypt 加密" },
-      { user: "好的" },
+      { decision: { action: "create", text: "密码用 bcrypt 加密" } },
       { compact: "摘要：已实现登录与注册。决策：JWT 认证 active、bcrypt 加密 active。目标：登录、注册。工具：src/auth.ts。" },
-      { user: "改用 Session 吧" },
-      { user: "好的" },
+      { decision: { action: "create", text: "改用 Session 认证", supersedes: "latest" } },
     ],
     expectations: [
       { kind: "decision", contains: "JWT", status: "active" },
@@ -140,17 +150,15 @@ export const SCENARIOS: Scenario[] = [
     title: "注入遵循前置：状态卡覆盖 active 决策/目标/偏好（模型每轮可见）",
     turns: [
       { user: "帮我实现 API 网关" },
-      { assistant: "我记下了网关用 Kong 实现" },
-      { user: "好的" },
-      { user: "以后测试都用 vitest 写" },
-      { user: "嗯" },
+      { decision: { action: "create", text: "网关用 Kong 实现" } },
+      { feedback: { text: "测试都用 vitest 写", kind: "preference" } },
     ],
     expectations: [
       { kind: "decision", contains: "Kong", status: "active" },
       { kind: "goal", contains: "网关" },
       { kind: "status-card", contains: "Kong" },
       { kind: "status-card", contains: "vitest" },
-      { kind: "recall", query: "Kong 网关", mustContain: "Kong" },
+      { kind: "decision-query", contains: "网关用 Kong 实现" },
     ],
   },
   {
@@ -198,8 +206,7 @@ export const SCENARIOS: Scenario[] = [
     title: "双代理 delta：他代理新决策 → 增量可见（G5，本代理行排除）",
     turns: [
       { user: "主代理开始工作" },
-      { user: "我决定登录用 JWT", other: true },
-      { assistant: "（他代理记下决策）", other: true },
+      { decision: { action: "create", text: "登录用 JWT" }, other: true },
     ],
     expectations: [
       { kind: "delta", contains: "JWT" },

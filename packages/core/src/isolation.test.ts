@@ -44,13 +44,12 @@ describe("会话隔离（B⑧）", () => {
       isolation: true,
       ts: "2026-08-15T00:00:02.000Z",
     });
-    store.proposeDecision("iso-s1", "隔离决策：改用 yarn", {
+    store.addDecision("iso-s1", "隔离决策：改用 yarn", {
       scope: "project",
       projectKey: "proj-iso",
       isolation: true,
       ts: "2026-08-15T00:00:03.000Z",
     });
-    store.confirmLatestProposed("iso-s1", { ts: "2026-08-15T00:00:04.000Z" });
 
     // 本会话自己可见
     expect(store.getActiveDecisions("iso-s1").some((d) => d.text.includes("yarn"))).toBe(true);
@@ -113,14 +112,13 @@ describe("会话隔离（B⑧）", () => {
     expect(store.getActiveDecisionsMerged("other-s1", "proj-iso").some((x) => x.text.includes("yarn"))).toBe(true);
 
     // supersede replacement 继承被 supersede 行的隔离标记
-    store.proposeDecision("iso-s1", "待替换的隔离决策", {
+    const target = store.addDecision("iso-s1", "待替换的隔离决策", {
       scope: "project",
       projectKey: "proj-iso",
       isolation: true,
       ts: "2026-08-15T00:00:09.000Z",
     });
-    store.confirmLatestProposed("iso-s1", { ts: "2026-08-15T00:00:10.000Z" });
-    const r = store.supersedeLatestActive("iso-s1", "替换后决策", { ts: "2026-08-15T00:00:11.000Z" });
+    const r = store.supersedeDecisionById("iso-s1", target.id, "替换后决策", { ts: "2026-08-15T00:00:11.000Z" });
     expect(r?.replacement.isolation).toBe(1);
   });
 

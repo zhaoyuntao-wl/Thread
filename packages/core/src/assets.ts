@@ -55,7 +55,9 @@ export function extractTitleFromContent(content: string | undefined, fallback: s
   return base.length > TITLE_MAX ? `${base.slice(0, TITLE_MAX)}…` : base;
 }
 
-// 文档产出：write/edit 类工具 + 目标为 .md 文件（路径归一化后判定，存储保留原路径）
+// 文档产出：write/edit 类工具 + 目标为 .md 文件（路径归一化后判定，存储保留原路径）。
+// 隐藏目录排除（2026-08-21 狗粮实证）：.changeset/.git 等隐藏目录下的 md 是工程记录不是产出——
+// 模型常反复编辑它们，自动登记既制造噪音又推高重复行。
 export function classifyWriteEvent(toolName: string, args: unknown): AssetClassification | undefined {
   if (!WRITE_TOOLS.has(toolName)) {
     return undefined;
@@ -65,6 +67,9 @@ export function classifyWriteEvent(toolName: string, args: unknown): AssetClassi
   if (!filePath || !/\.md$/i.test(filePath.replace(/\\/g, "/"))) {
     return undefined;
   }
+  if (isHiddenPath(filePath)) {
+    return undefined;
+  }
   const content =
     typeof parsed?.content === "string"
       ? parsed.content
@@ -72,6 +77,14 @@ export function classifyWriteEvent(toolName: string, args: unknown): AssetClassi
         ? parsed.new_string
         : undefined;
   return { isAsset: true, kind: "document", path: filePath, title: extractTitleFromContent(content, filePath), content };
+}
+
+// 隐藏目录判定：任一路径段以 . 开头（. 与 .. 除外）——与 expandAssetPaths 的目录递归跳过策略一致
+function isHiddenPath(p: string): boolean {
+  return p
+    .replace(/\\/g, "/")
+    .split("/")
+    .some((seg) => seg.startsWith(".") && seg !== "." && seg !== "..");
 }
 
 // 报告标题：output 首个非空行（去 markdown # 前缀），兜底工具名

@@ -72,7 +72,7 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
       if (carryGoals) lines.push(`  - ${carryGoals}`);
       if (carryDecisions) lines.push(`  - ${carryDecisions}`);
       if (assets.length > 0) lines.push(`  - 最近产出: ${assets.map((a) => `${a.title}（${a.path}）`).join("；")}`);
-      if (todos.length > 0) lines.push(`  - 待办: ${todos.map((t) => t.text.slice(0, 60)).join("；")}`);
+      if (todos.length > 0) lines.push(`  - 待办: ${todos.map((t) => `${t.text.slice(0, 60)} #${t.id}`).join("；")}`);
       lines.push("  基于以上继续，不要重新开始；查更多用 query_session_memory 导航（ls/cd/cat/grep）。");
     }
     // 发现层（max 2.4）：活跃会话区块——模型知道别的会话存在
@@ -134,17 +134,17 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
       .reverse()
       .forEach((e) => lines.push(`  - ${e.kind}: ${e.body.slice(0, 60)}`));
   }
-  // 轻确认候选唤醒（§1.5.3d 通道二 + 2026-08-20 复盘修复）：计数 + 前 2 条原文——
-  // 无 UI 环境（headless）弹窗不触发，候选堆积数天未决（狗粮实证：含发布策略决策本身）；
-  // 原文入卡让模型可向用户转述/推进 /thread-pending，修复"重要决策既不转正又被实际遵循"的脱节
+  // 待处理事项唤醒（§1.5.3d 通道二 + 2026-08-20 复盘修复 + 2026-08-21 收件箱化）：计数 + 前 2 条原文——
+  // 无 UI 环境（headless）折叠卡片不触发，候选堆积数天未决（狗粮实证）；完成/转正/丢弃走
+  // /thread-cfm do/cnl，原文入卡让模型可向用户转述推进，修复"重要决策既不转正又被实际遵循"的脱节
   if (!isolated) {
     try {
       const pending = store.listPendingCandidates({ sessionId, projectKey });
       if (pending.length > 0) {
-        lines.push(`待确认（${pending.length} 条，/thread-pending 查看）: 模型不得将未确认候选当正式决策执行。`);
+        lines.push(`待处理候选（${pending.length} 条，/thread-cfm 查看）: 候选转正前不得当正式决策执行。`);
         pending
           .slice(0, 2)
-          .forEach((c) => lines.push(`  - #${c.id} [${c.kind === "decision" ? "决策" : "偏好"}] ${c.text.slice(0, 60)}`));
+          .forEach((c) => lines.push(`  - c#${c.id} [${c.kind === "decision" ? "决策" : "偏好"}] ${c.text.slice(0, 60)}`));
       }
     } catch {
       // 失败降级，不阻塞
@@ -152,7 +152,7 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
   }
   // 收束语（外部借鉴③）：绑定式行动收束，防止纯"再想想"式开放引导
   lines.push("需要更早的历史细节时，调用 query_session_memory 工具查询，并基于结果给出结论。");
-  lines.push("收到 隔离//unisolate//thread-publish 单命令时，只回一句状态确认，不展开思考。");
+  lines.push("收到 Thread 管理命令（/thread-reg /thread-rev /thread-cfm /thread-iso /thread-uniso /thread-pub）或\"隔离/静默\"指令时，只回一句状态确认，不展开思考。");
 
   return lines.slice(0, budgetLines).join("\n");
 }

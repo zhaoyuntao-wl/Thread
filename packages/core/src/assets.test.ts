@@ -63,6 +63,13 @@ describe("classifyWriteEvent（文档产出：write/edit 类 × .md 路径）", 
   it("非 write 类工具 → 不识别", () => {
     expect(classifyWriteEvent("read", { file_path: "docs/a.md" })).toBeUndefined();
   });
+  it("隐藏目录下的 md → 不识别（2026-08-21 狗粮实证：.changeset 噪音）", () => {
+    expect(classifyWriteEvent("write", { file_path: ".changeset/feature.md", content: "# 变更" })).toBeUndefined();
+    expect(classifyWriteEvent("write", { file_path: "repo/.changeset/x.md", content: "# 变更" })).toBeUndefined();
+    expect(classifyWriteEvent("write", { file_path: "D:\\work\\.changeset\\x.md", content: "# 变更" })).toBeUndefined();
+    // 正常目录不受影响
+    expect(classifyWriteEvent("write", { file_path: "docs/design.md", content: "# 正常" })?.isAsset).toBe(true);
+  });
 });
 
 describe("classifyReportEvent（报告产出：report/subagent-report）", () => {

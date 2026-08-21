@@ -19,13 +19,12 @@ afterAll(() => {
 
 describe("B② 回归：作用域过滤零泄漏", () => {
   it("项目 P1 的项目级决策不出现在 P2 的合并视图（零泄漏）", () => {
-    store.proposeDecision("p1-s1", "P1 用 pnpm 管理依赖", {
+    store.addDecision("p1-s1", "P1 用 pnpm 管理依赖", {
       scope: "project",
       projectKey: "proj-p1",
       origin: "eval://p1/1",
       ts: "2026-08-14T00:00:00.000Z",
     });
-    store.confirmLatestProposed("p1-s1", { ts: "2026-08-14T00:00:01.000Z" });
 
     const p1View = store.getActiveDecisionsMerged("p1-s1", "proj-p1");
     expect(p1View.some((d) => d.text.includes("pnpm"))).toBe(true);
@@ -38,13 +37,12 @@ describe("B② 回归：作用域过滤零泄漏", () => {
   });
 
   it("会话级决策不泄漏给同项目其他会话", () => {
-    store.proposeDecision("p1-s2", "本会话临时方案", {
+    store.addDecision("p1-s2", "本会话临时方案", {
       scope: "session",
       projectKey: "proj-p1",
       origin: "eval://p1/2",
       ts: "2026-08-14T00:00:02.000Z",
     });
-    store.confirmLatestProposed("p1-s2", { ts: "2026-08-14T00:00:03.000Z" });
 
     const other = store.getActiveDecisionsMerged("p1-s1", "proj-p1");
     expect(other.some((d) => d.text.includes("临时方案"))).toBe(false);

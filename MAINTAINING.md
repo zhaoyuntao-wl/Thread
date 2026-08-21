@@ -27,10 +27,10 @@ Every user-visible change ships with a changeset (`pnpm changeset`).
 
 ## Breaking change policy
 
-- Update the design docs first (`docs/design/v1` baseline takes precedence; v2 for
-  phase-2 plans), then implement.
+- Update the design docs first (`docs/design/architecture.md` for the released
+  current state; `docs/local/design` for process and plans), then implement.
 - Changeset marks `major` and states the migration path.
-- README and `docs/api.md` are updated in the same PR.
+- README and `docs/design` (architecture/protocol) are updated in the same PR.
 - For `dsh-thread`, extend the compat matrix in `.github/workflows/ci.yml` of the
   [dsh-plugin-thread](https://github.com/zhaoyuntao-wl/dsh-plugin-thread)
   repository when the pinned dsh version changes.
@@ -39,6 +39,8 @@ Every user-visible change ships with a changeset (`pnpm changeset`).
 
 - Behavior changes require a regression scenario in `packages/evals`
   or an extension of an existing one.
-- API changes update `docs/api.md` and `examples/` in the same PR.
+- API changes update `examples/` in the same PR; the authoritative API surface
+  lives in the TypeScript declarations (`dist/*.d.ts`) and
+  `docs/design/architecture.md`.
 - The gate is four-fold: `pnpm typecheck && pnpm lint && pnpm test && pnpm eval`;
   regression failures block merging.

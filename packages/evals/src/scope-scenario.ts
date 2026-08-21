@@ -14,14 +14,12 @@ export function runScopeFilterScenario(): ScenarioReport {
   const checks: CheckResult[] = [];
   try {
     applyTurn(store, "p1-s1", { user_msg: "帮我搭建项目脚手架" }, { ts: "2026-08-14T00:00:00.000Z" });
-    applyTurn(store, "p1-s1", { assistant_msg: "我记下了本项目用 pnpm 管理依赖" }, { ts: "2026-08-14T00:00:01.000Z" });
-    applyTurn(store, "p1-s1", { user_msg: "好的" }, { ts: "2026-08-14T00:00:02.000Z" });
-    applyTurn(
-      store,
-      "p1-s1",
-      { user_msg: "以后统一用 TypeScript" },
-      { scope: "global", ts: "2026-08-14T00:00:03.000Z" },
-    );
+    // 2026-08-21 结构通道化：决策/反馈经显式通道（addDecision/addFeedback 直落，NL 判定已停）
+    store.addDecision("p1-s1", "本项目用 pnpm 管理依赖", { projectKey: "proj-p1", ts: "2026-08-14T00:00:01.000Z" });
+    store.addFeedback("p1-s1", "统一用 TypeScript", "preference", {
+      scope: "global",
+      ts: "2026-08-14T00:00:03.000Z",
+    });
 
     const p1Decisions = store.getActiveDecisionsMerged("p1-s1", "proj-p1");
     const p1HasPnpm = p1Decisions.some((d) => d.text.includes("pnpm"));

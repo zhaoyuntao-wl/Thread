@@ -18,16 +18,14 @@ export function runIsolationScenario(): ScenarioReport {
   try {
     const ts = (i: number) => new Date(new Date("2026-08-15T00:00:00.000Z").getTime() + i * 1000).toISOString();
 
-    // 会话 A（未隔离）：正常共享决策
+    // 会话 A（未隔离）：正常共享决策（2026-08-21 结构通道化：显式 addDecision，NL 判定已停）
     applyAnalysis(store, "a-s1", { user_msg: "帮我搭建项目脚手架" }, { ts: ts(0) });
-    applyAnalysis(store, "a-s1", { assistant_msg: "我记下了项目用 pnpm" }, { ts: ts(1), origin: "eval://iso/a/1" });
-    applyAnalysis(store, "a-s1", { user_msg: "好的" }, { ts: ts(2), origin: "eval://iso/a/2" });
+    store.addDecision("a-s1", "项目用 pnpm", { projectKey: "proj-iso", origin: "eval://iso/a/1", ts: ts(1) });
 
     // 会话 B：进入隔离，写隔离决策 + 共享 tool 事件
     store.setSessionIsolation("b-s1", true);
     applyAnalysis(store, "b-s1", { user_msg: "帮我配置测试框架" }, { ts: ts(3), isolation: true, origin: "eval://iso/b/1" });
-    applyAnalysis(store, "b-s1", { assistant_msg: "我记下了测试用 vitest" }, { ts: ts(4), isolation: true, origin: "eval://iso/b/2" });
-    applyAnalysis(store, "b-s1", { user_msg: "好的" }, { ts: ts(5), isolation: true, origin: "eval://iso/b/3" });
+    store.addDecision("b-s1", "测试用 vitest", { projectKey: "proj-iso", isolation: true, origin: "eval://iso/b/2", ts: ts(4) });
     store.append(
       { session_id: "b-s1", kind: "tool_call", ts: ts(6), body: "Write 调用参数：b.test.ts", meta: { tool_name: "Write", file_path: "b.test.ts" } },
       { projectKey: "proj-iso", origin: "eval://iso/b/tool/1" },
@@ -80,8 +78,7 @@ export function runIsolationScenario(): ScenarioReport {
 
     // 断言 4：解除隔离后新内容共享，历史仍隔离
     store.setSessionIsolation("b-s1", false);
-    applyAnalysis(store, "b-s1", { assistant_msg: "我记下了 CI 用 GitHub Actions" }, { ts: ts(8), isolation: false, origin: "eval://iso/b/4" });
-    applyAnalysis(store, "b-s1", { user_msg: "好的" }, { ts: ts(9), isolation: false, origin: "eval://iso/b/5" });
+    store.addDecision("b-s1", "CI 用 GitHub Actions", { projectKey: "proj-iso", isolation: false, origin: "eval://iso/b/4", ts: ts(8) });
     const aDecisions2 = store.getActiveDecisionsMerged("a-s1", "proj-iso");
     push(
       "解除后 B 新决策对 A 可见",

@@ -72,4 +72,18 @@ describe("sedimentClosingTodos（收尾自动沉淀，1.2）", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("目标完成 → todo 同步 done（关闭即沉淀的自愈，2026-08-20）", () => {
+    const { store, dir } = makeStore();
+    try {
+      const g = store.addGoal("s1", "目标 X", { projectKey: "demo" });
+      sedimentClosingTodos(store, "s1", { projectKey: "demo" });
+      expect(store.listTodos({ sessionId: "s1" })[0].status).toBe("pending");
+      store.updateGoalStatus("s1", g.id, "completed");
+      expect(store.listTodos({ sessionId: "s1" })[0].status).toBe("done");
+    } finally {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

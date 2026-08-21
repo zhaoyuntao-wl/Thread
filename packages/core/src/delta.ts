@@ -54,22 +54,28 @@ export function getStateDelta(store: ThreadStore, opts: StateDeltaOptions): Stat
   };
 }
 
-// delta 块渲染（2.3.2 格式）：无变更返回 undefined（零注入）
+// delta 块渲染（2.3.2 格式）：无变更返回 undefined（零注入）。
+// 条目截断为单行 80 字符（2026-08-21 狗粮：目标全文含嵌入叙事 → 被误读为实时活动）
+function clip(text: string): string {
+  const single = text.replace(/\s+/g, " ").trim();
+  return single.length > 80 ? `${single.slice(0, 80)}…` : single;
+}
+
 export function renderStateDelta(delta: StateDelta): string | undefined {
   const lines: string[] = [];
   for (const d of delta.decisions) {
     const status = d.status === "active" ? "生效" : d.status === "proposed" ? "提议" : d.status ?? "";
-    lines.push(`▸ 新决策: ${d.text}（${shortSession(d.session_id)} #${d.id}${status ? ` ${status}` : ""}）`);
+    lines.push(`▸ 新决策: ${clip(d.text)}（${shortSession(d.session_id)} #${d.id}${status ? ` ${status}` : ""}）`);
   }
   for (const g of delta.goals) {
     const status = g.status && g.status !== "active" ? ` ${g.status}` : "";
-    lines.push(`▸ 目标变更: ${g.text}（${shortSession(g.session_id)}${status}）`);
+    lines.push(`▸ 目标变更: ${clip(g.text)}（${shortSession(g.session_id)}${status}）`);
   }
   for (const f of delta.feedback) {
-    lines.push(`▸ 新偏好: ${f.text}（${shortSession(f.session_id)}）`);
+    lines.push(`▸ 新偏好: ${clip(f.text)}（${shortSession(f.session_id)}）`);
   }
   for (const p of delta.pending) {
-    lines.push(`▸ 待确认候选: ${p.text}（${shortSession(p.session_id)} ${p.status ?? "pending"}）`);
+    lines.push(`▸ 待确认候选: ${clip(p.text)}（${shortSession(p.session_id)} ${p.status ?? "pending"}）`);
   }
   if (lines.length === 0) {
     return undefined;

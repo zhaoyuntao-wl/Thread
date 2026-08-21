@@ -40,6 +40,9 @@ export function runScenario(store: ThreadStore, scenario: Scenario): ScenarioRep
   const nextTs = () => new Date(new Date(BASE_TS).getTime() + t++ * 1000).toISOString();
 
   const turnSession = (other: boolean | undefined): string => (other ? siblingId : sessionId);
+  // 显式通道 op（2026-08-21）：record_decision 工具调用 / /thread-reg fdb 命令的等价仿真——
+  // 同步落事件（保血缘与召回语义）+ 写结构化行；supersedes "latest" = 本会话最近一条决策
+  const lastDecisionId = new Map<string, number>();
 
   try {
     for (const turn of scenario.turns) {
@@ -49,6 +52,34 @@ export function runScenario(store: ThreadStore, scenario: Scenario): ScenarioRep
       }
       if (turn.assistant) {
         applyTurn(store, sid, { assistant_msg: turn.assistant }, { ts: nextTs() });
+      }
+      if (turn.decision) {
+        const ts = nextTs();
+        const targetId = turn.decision.supersedes === "latest" ? lastDecisionId.get(sid) : turn.decision.supersedes;
+        const args = { text: turn.decision.text, ...(targetId !== undefined ? { supersedes_id: targetId } : {}) };
+        const event = store.append({
+          session_id: sid,
+          kind: "tool_call",
+          ts,
+          body: `record_decision 调用参数：${JSON.stringify(args)}`,
+          meta: { tool_name: "record_decision" },
+        });
+        let created;
+        if (targetId !== undefined) {
+          created = store.supersedeDecisionById(sid, targetId, turn.decision.text, { sourceEvent: event.id, ts })?.replacement;
+        }
+        created ??= store.addDecision(sid, turn.decision.text, { sourceEvent: event.id, ts, projectKey: store.projectKey });
+        lastDecisionId.set(sid, created.id);
+      }
+      if (turn.feedback) {
+        const kind = turn.feedback.kind ?? "preference";
+        const event = store.append({
+          session_id: sid,
+          kind: "user_message",
+          ts: nextTs(),
+          body: `/thread-reg fdb ${turn.feedback.text}`,
+        });
+        store.addFeedback(sid, turn.feedback.text, kind, { sourceEvent: event.id, projectKey: store.projectKey });
       }
       if (turn.tool) {
         const tool = turn.tool;
@@ -151,6 +182,17 @@ function checkExpectation(
         detail: hit
           ? `命中: #${hit.id} ${hit.text}`
           : `未命中，${exp.status} 决策: ${decisions.map((d) => d.text).join(" | ") || "无"}`,
+      };
+    }
+    case "decision-query": {
+      // 2026-08-21 结构通道化：决策内容经 query_session_memory kind=decision（结构化表）回拉，
+      // tool 事件不建 FTS 索引（governor 分层），决策文本召回走 decisions 表而非 BM25 事件召回
+      const decisions = store.getDecisions(sessionId);
+      const hit = decisions.find((d) => d.text.includes(exp.contains));
+      return {
+        expectation: `decision-query contains "${exp.contains}"`,
+        passed: Boolean(hit),
+        detail: hit ? `命中: #${hit.id} ${hit.text}` : `未命中，决策: ${decisions.map((d) => d.text).join(" | ") || "无"}`,
       };
     }
     case "recall": {

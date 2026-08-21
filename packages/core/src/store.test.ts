@@ -294,7 +294,7 @@ describe("ThreadStore", () => {
 describe("structured scope (B②-4)", () => {
   it("writes scope/project_key/origin on structured rows", () => {
     const g = store.addGoal("s6", "目标 A", { scope: "session", projectKey: "p1", origin: "o-goal-1", ts: "2026-08-13T00:00:00.000Z" });
-    const d = store.proposeDecision("s6", "决策 B", { scope: "project", projectKey: "p1", origin: "o-dec-1", ts: "2026-08-13T00:00:00.000Z" });
+    const d = store.addDecision("s6", "决策 B", { scope: "project", projectKey: "p1", origin: "o-dec-1", ts: "2026-08-13T00:00:00.000Z" });
     const f = store.addFeedback("s6", "偏好 C", "preference", { scope: "global", origin: "o-fb-1", ts: "2026-08-13T00:00:00.000Z" });
     expect(g.scope).toBe("session");
     expect(g.project_key).toBe("p1");
@@ -312,14 +312,10 @@ describe("structured scope (B②-4)", () => {
   });
 
   it("merged decisions include same-project rows from other sessions, hard-filter others", () => {
-    store.proposeDecision("s8", "pnpm 包管理", { scope: "project", projectKey: "proj-x", origin: "o-x-1", ts: "2026-08-13T00:00:00.000Z" });
-    store.confirmLatestProposed("s8", { ts: "2026-08-13T00:00:01.000Z" });
-    store.proposeDecision("s8", "会话内临时决策", { scope: "session", projectKey: "proj-x", origin: "o-x-2", ts: "2026-08-13T00:00:02.000Z" });
-    store.confirmLatestProposed("s8", { ts: "2026-08-13T00:00:03.000Z" });
-    store.proposeDecision("s9", "另一项目决策", { scope: "project", projectKey: "proj-y", origin: "o-y-1", ts: "2026-08-13T00:00:04.000Z" });
-    store.confirmLatestProposed("s9", { ts: "2026-08-13T00:00:05.000Z" });
-    store.proposeDecision("s10", "无关项目", { scope: "project", projectKey: "proj-z", origin: "o-z-1", ts: "2026-08-13T00:00:06.000Z" });
-    store.confirmLatestProposed("s10", { ts: "2026-08-13T00:00:07.000Z" });
+    store.addDecision("s8", "pnpm 包管理", { scope: "project", projectKey: "proj-x", origin: "o-x-1", ts: "2026-08-13T00:00:00.000Z" });
+    store.addDecision("s8", "会话内临时决策", { scope: "session", projectKey: "proj-x", origin: "o-x-2", ts: "2026-08-13T00:00:02.000Z" });
+    store.addDecision("s9", "另一项目决策", { scope: "project", projectKey: "proj-y", origin: "o-y-1", ts: "2026-08-13T00:00:04.000Z" });
+    store.addDecision("s10", "无关项目", { scope: "project", projectKey: "proj-z", origin: "o-z-1", ts: "2026-08-13T00:00:06.000Z" });
 
     const merged = store.getActiveDecisionsMerged("s9", "proj-y");
     const texts = merged.map((d) => d.text);
@@ -350,9 +346,10 @@ describe("structured scope (B②-4)", () => {
   });
 
   it("scope defaults to project (先到先得) when not specified", () => {
-    const d = store.proposeDecision("s11", "默认项目级决策", { projectKey: "proj-x", ts: "2026-08-13T00:00:00.000Z" });
+    const d = store.addDecision("s11", "默认项目级决策", { projectKey: "proj-x", ts: "2026-08-13T00:00:00.000Z" });
     expect(d.scope).toBe("project");
     expect(d.project_key).toBe("proj-x");
+    expect(d.status).toBe("active");
   });
 });
 
@@ -395,5 +392,54 @@ describe("applyScopePriority (B③)", () => {
     const out = applyScopePriority(rows);
     expect(out).toHaveLength(1);
     expect(out[0].scope).toBe("session");
+  });
+});
+
+describe("显式通道资源治理（2026-08-21 /thread-reg|rev|pub 资源集）", () => {
+  it("getGoals 返回全状态目标（reg gol 无参列表的 id 来源）", () => {
+    const g1 = store.addGoal("s-g1", "进行中的目标", { projectKey: "test-proj" });
+    store.updateGoalStatus("s-g1", g1.id, "completed");
+    const g2 = store.addGoal("s-g1", "已废弃的目标", { projectKey: "test-proj" });
+    store.updateGoalStatus("s-g1", g2.id, "abandoned");
+    const all = store.getGoals("s-g1");
+    expect(all.map((g) => g.status).sort()).toEqual(["abandoned", "completed"]);
+  });
+
+  it("deleteAsset 硬删除 + 血缘边清理，事件流水保留", () => {
+    const ev = store.append({
+      session_id: "s-g2",
+      kind: "tool_call",
+      ts: "2026-08-13T00:00:00.000Z",
+      body: "write docs/x.md",
+      meta: { tool_name: "write", file_path: "docs/x.md" },
+    });
+    const a = store.registerAsset({ sessionId: "s-g2", path: "docs/x.md", title: "X 文档", sourceEvent: ev.id });
+    expect(store.listAssets({ sessionId: "s-g2" })).toHaveLength(1);
+    expect(store.deleteAsset(a.id)).toBe(true);
+    expect(store.listAssets({ sessionId: "s-g2" })).toHaveLength(0);
+    expect(store.getRelatedEdges("s-g2", "asset", a.id)).toHaveLength(0);
+    expect(store.deleteAsset(a.id)).toBe(false);
+  });
+
+  it("registerAsset 路径幂等（2026-08-21 狗粮实证：同 path 重复堆行 12 行）", () => {
+    const a1 = store.registerAsset({ sessionId: "s-g2b", path: "README.md", title: "旧标题" });
+    const a2 = store.registerAsset({ sessionId: "s-g2b", path: "README.md", title: "新标题" });
+    expect(a2.id).toBe(a1.id);
+    expect(store.listAssets({ sessionId: "s-g2b" })).toHaveLength(1);
+    // 标题刷新为最新
+    expect(store.getAsset(a1.id)?.title).toBe("新标题");
+    // 跨会话可见范围去重：他会话注册同 path 也不新增（isolation=0 行全局可见）
+    const a3 = store.registerAsset({ sessionId: "s-g2c", path: "README.md", title: "标题三" });
+    expect(a3.id).toBe(a1.id);
+  });
+
+  it("listIsolatedRows 覆盖 ast 产出 + 三元组，unisolateRow 支持 knowledge_assets", () => {
+    const a = store.registerAsset({ sessionId: "s-g3", path: "docs/iso.md", title: "隔离产出", isolation: true });
+    store.addGoal("s-g3", "隔离目标", { projectKey: "test-proj", isolation: true });
+    const rows = store.listIsolatedRows("s-g3");
+    expect(rows.some((r) => r.kind === "ast" && r.id === a.id)).toBe(true);
+    expect(rows.some((r) => r.kind === "goal")).toBe(true);
+    expect(store.unisolateRow("s-g3", "knowledge_assets", a.id)).toBe(true);
+    expect(store.listIsolatedRows("s-g3").some((r) => r.kind === "ast")).toBe(false);
   });
 });

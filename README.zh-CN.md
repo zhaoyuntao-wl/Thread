@@ -2,87 +2,99 @@
 
 [![CI](https://github.com/zhaoyuntao-wl/Thread/actions/workflows/ci.yml/badge.svg)](https://github.com/zhaoyuntao-wl/Thread/actions/workflows/ci.yml)
 
-*Session memory with lineage for coding agents.*（面向编码 Agent 的会话记忆层）
+*面向编码 Agent 的会话记忆层，带血缘。*
 
-Thread 是底座无关的编码 Agent 会话记忆层。与有损的上下文压缩不同，它把会话的完整事件流无损落库、按需检索——长任务中的目标、决策、反馈与血缘关系全程保真。
+Thread 是底座无关的编码 Agent 记忆层。不做有损上下文压缩、不做 LLM 蒸馏摘要——它无损存储会话的完整事件流水，并把决策与目标作为一等结构化状态：确定性采集、结构性送达。
 
-- **决策不丢**：每个决策（含被取代/被撤销的）无损留存，演化过程可回溯
-- **目标不漂移**：关键目标在压缩与新会话后仍常驻
-- **不重复提问**：已答信息按需召回
-- **上下文有界**：每轮成本保持 O(1)——常驻状态卡 + 按需检索，替代全量历史重放
-- **情境化传达**：状态卡升级为情境路由器——新会话自动续接上次工作、压缩边界重述目标、最近决策自动传达，模型不基于旧状态行动
-- **决策需确认**：用户口头决策先暂存为候选，经弹窗（确认/取消/推迟）裁决——未确认的内容绝不成为正式决策
-- **中文检索**：BM25 + jieba 词级分词，写时即建索引——中文查询按词命中，不再因单字拆分而检索失败
+## 能力
+
+- **决策不丢**：每条决策（含被撤销/替代的）无损留存，经状态机全程可回溯。
+- **目标不漂移**：关键目标跨压缩、跨会话常驻——首轮锚定、每次压缩后重锚定、跨代理状态增量三重结构性送达。
+- **不重复提问**：已答信息按需召回。
+- **跨压缩保真**：底座压缩长会话时，Thread 记录压缩边界、把目标/决策重锚进状态卡、并让被压缩的细节保持可检索——不是"从摘要里碰运气"。
+- **跨会话接续**：新会话自动续接此前的决策、产出（自动登记的资产）与待办，并发现其他会话产出了什么。
+- **跨代理更新**：同项目其他代理落定决策后，增量在下一回合边界推入你的会话——不基于过期状态行动。
+- **查询原语**：单工具 `query_session_memory`，文件系统式导航——`ls`（列产出/待办/关联）、`cd`（节点详情）、`cat`（全文）、`grep`（带上下文检索），见 [记忆协议](docs/design/memory-protocol.md)。
+- **结构性送达**：行为契约技能（"需要细节就调工具"）注册进底座技能目录并在锚点注入——模型不必"记得自己有记忆"。
+- **产出识别**：write/edit 类工具写出的文档在写时即登记为产出并建血缘边（`/thread-reg ast` 覆盖显式登记）。
+- **决策与偏好的显式通道**：决策与偏好经命令（`/thread-reg dec`、`/thread-reg fdb`）或模型的 `record_decision` 工具记录——不依赖脆弱的文本启发式，粘贴/回显文本零误报；事件流水无损保留 = 未显式记录的仍可回拉。目标判定（短祈使句）与完成判定保留，并对多行/粘贴输入设守卫。
+- **收尾沉淀**：收尾词把进行中目标沉淀为待办；`/thread-cfm` 是待处理收件箱（`do`/`cnl`，`t#`/`c#` 命名空间），`/thread-rev <ast|dec|fdb|gol>` 解除注册。
+- **会话隔离**：会话可静默，其闲聊仅自己可见，工具事实仍共享。
+- **中文检索**：jieba 分词 BM25 + trigram 兜底，事件流水写时即建索引。
 
 ## 为什么不同
 
-多数记忆插件存的是**知识**——模型蒸馏后的事实，事后召回。Thread 把**决策与目标作为一等结构化状态**存储，连同其演化（被取代/被撤销的历史），由规则确定性捕获而非 LLM 蒸馏。差异在最难的场景显现：
+多数记忆插件存的是*知识*——模型蒸馏出的事实、事后召回。Thread 存的是*决策与目标的一等结构化状态*及其演化，由显式通道与轻量规则确定性采集，而非 LLM 蒸馏。差别在最难的场景里显现：
 
-- **跨压缩**：长会话被压缩时，Thread 在状态卡中重新锚定目标与决策、细节仍可检索——不是"从摘要尽力而为"
-- **跨会话**：新会话自动续接上次决策，不必重新解释
-- **可证明**：回归集（`pnpm eval`）跑场景级保真检查——决策不丢、目标不漂移、答案可重查——作为 CI 门禁。它检验的是记忆层的核心价值（跨压缩/跨会话保真），不只是单元覆盖。
+- **跨压缩**：Thread 重锚状态、细节可检索；摘要式记忆退化为"摘要留下了什么"。
+- **跨代理**：Thread 主动推送状态变化，不等模型记得去问。
+- **可证明**：回归集（`pnpm eval`）以场景级保真检查作 CI 门禁——决策经压缩不丢、目标不漂移、答案可复现、跨代理增量可达。它检验的是记忆层的*意义*（跨压缩与跨会话的保真），不只是单元覆盖。
+
+## 诚实边界（1.0 实际行为）
+
+Thread 宁可漏采、不可误采。1.0 的真实行为直说如下：
+
+- **候选不会自动产出**：决策/偏好的自然语言判定已停用，收件箱的 `c#` 条目只会显示存量遗留；候选自动产出等待发布后的抽取层（LLM/小模型，度量准入）。待办（`t#`）相反有活跃产出路径：收尾沉淀 + 目标完成自愈。
+- **决策不会自行过期**：决策保持「生效」——持续注入状态卡与接续块——直到被显式取代（`/thread-reg dec <新决策> --supersedes <id>`）或删除（`/thread-rev dec`）。时间性决策（如"先不发布等 X"）请在条件被消费的那一刻收口。
+- **目标完成判定偏保守**：完成宣告 + 与进行中目标文本重叠（非 ASCII ≥4 连续字符、纯 ASCII ≥8 连字符）；短纯英文目标不会自动判定完成（宁漏勿误），可用 `/thread-rev gol` 废弃。
+- **产出登记是索引，不是快照**：产出经命令或文档/报告自动识别登记（非 markdown 文件不自动登记）；`cat` 实时读文件，写入时原文在事件流可回拉。
+- **检索分层**：BM25 只索引消息类事件，工具输出不建全文索引；决策内容回拉走 `query_session_memory` 的 `kind=decision` 路径。
+- **模型通道依赖行为契约**：自然语言定案由模型按契约调用 `record_decision` 记录，遵从率是概率性的；未记录的定案仍在事件流可回拉，发布后以抽取层 + 用户确认兜底。
+
+## 底座接入
+
+Thread 有两种接入形态——**深度集成**（推荐）与**适配**（保底）：
+
+| 形态 | 底座 | 能力 |
+|---|---|---|
+| **深度集成**（推荐） | **dsh**（DeepSeek Harness）——`dsh-thread` 插件 | 全能力：原生工具注册、动态技能、压缩事件订阅 + 重锚定、可选主动压缩、跨代理增量 |
+| **适配** | Qoder CLI（hooks + MCP） | 核心能力：无损采集、状态卡 + 增量注入、产出识别、收尾沉淀、MCP 查询工具 |
+
+**为什么推荐深度集成**：让模型遵循行为的最强三类通道——工具注册（解码器级硬约束）、技能目录（SOP 送达）、压缩边界（状态重锚点）——在 dsh 的插件体系里全部开放，深度集成三者用满；适配形态只能用到 MCP 工具与消息注入：能力相同、送达通道降级。
+
+**适配计划**：下一个 = **Claude Code**（hooks + MCP + SKILL.md 对齐）；具备三弱能力的底座均可接入，见 [记忆协议](docs/design/memory-protocol.md)。
+
+## 上下文长度指引
+
+Thread 自己不压缩上下文；它依托底座压缩并保证压缩后状态不丢。对没有程序化压缩触发接口的底座，**调低底座的自动压缩阈值**让压缩更频繁——Thread 在每个压缩边界重锚定状态，更频繁的压缩不损失保真、只让上下文更有界。在 dsh 上 `dsh-thread` 插件可自行触发压缩（`THREAD_AUTO_COMPACT=1` + `compactPressureTokens`）。
 
 ## 架构
 
 ```
-┌─────────────────────────────┐        ┌──────────────────────────────┐
-│  底座（可互换）              │        │  Thread 记忆内核              │
-│  主模型                      │  MCP   │  查询服务（图/BM25）           │
-│  工具（query_session_memory）│ hooks  │  事件流水（无损存储）          │
-│  会话导出                    │        │  结构化表（目标/决策/反馈）    │
-│  每轮上下文注入               │        │  血缘图                       │
-└─────────────────────────────┘        └──────────────────────────────┘
+ 底座（可换）                  Thread 记忆核心
+ ┌──────────────────────┐      ┌───────────────────────────┐
+ │ 主模型                │      │ 事件流水（无损）           │
+ │ 工具（query_...）     │ ───► │ 结构化表（状态）           │
+ │ 技能目录              │ ◄─── │ 血缘 + 产出               │
+ │ hooks / 会话日志      │      │ BM25 + trigram 检索       │
+ │ 压缩边界              │      │ 状态卡 / 锚点             │
+ └──────────────────────┘      └───────────────────────────┘
 ```
 
-Thread 以独立进程运行。底座通过三个弱能力（MCP 客户端 / hook 事件 / 每轮上下文注入）接入，可互换。
+底座经三个弱能力接入——工具注册（或 MCP）、上下文注入（或 hooks）、压缩边界信号——即可换。完整架构见 [Thread 1.0 架构](docs/design/architecture.md)。
 
-## 包结构
+## 包
 
 本仓库：
 
 | 包 | 说明 |
 |---|---|
-| `@thread-memory/core` | 事件流水、结构化表（目标/决策/反馈）、血缘图、BM25 检索、会话隔离 |
+| `@thread-memory/core` | 事件流水、结构化表（目标/决策/偏好/待办/产出）、血缘图、BM25+jieba/trigram 检索、查询原语、状态卡、跨代理增量 |
 | `@thread/adapter-qoder-cli` | Qoder CLI 参考适配器（hooks 采集、上下文注入、MCP 查询工具） |
 | `@thread/evals` | 回归集：场景级保真检查，CI 门禁 |
 
-dsh 适配器（`dsh-thread`）在独立仓库：[dsh-plugin-thread](https://github.com/zhaoyuntao-wl/dsh-plugin-thread) —— 单包闭环：`session/event` 采集 + 每轮状态卡注入 + 内嵌 MCP server（`query_session_memory`，`bin=dsh-thread`）。
-
-## 快速开始
-
-```ts
-import { ThreadStore, applyAnalysis, buildStatusCard, queryMemory } from "@thread-memory/core";
-
-const store = new ThreadStore({ eventsPath, structuredPath, projectKey });
-
-store.append(
-  { session_id: "s1", kind: "user_message", ts: new Date().toISOString(), body: "帮我实现登录功能" },
-  { origin: "demo://msg#1", projectKey },
-);
-applyAnalysis(store, "s1", { user_msg: "帮我实现登录功能" }, { projectKey });
-
-const card = buildStatusCard(store, { sessionId: "s1", projectKey, budgetLines: 200 });
-const hits = queryMemory(store, "JWT 认证", { sessionId: "s1" });
-
-store.close();
-```
-
-更多：[examples/](./examples/README.md) · [API 参考](./docs/api.md) · [设计文档（v1 基线）](./docs/design/v1/session-memory-system-design.md)
+dsh 插件在独立仓库：`dsh-thread`（npm `dsh-thread`）。
 
 ## 开发
 
-需要 Node >= 20 与 pnpm。
-
 ```sh
 pnpm install
-pnpm typecheck
+pnpm typecheck   # 构建 + 类型检查（全部包）
 pnpm lint
-pnpm test
-pnpm eval        # 场景级保真回归集（CI 门禁）
+pnpm test        # 单元测试
+pnpm eval        # 场景级保真回归（CI 门禁）
 ```
 
-见 [CONTRIBUTING.md](./CONTRIBUTING.md) 与 [MAINTAINING.md](./MAINTAINING.md)。
+## License
 
-## 许可证
-
-[MIT](./LICENSE)
+MIT

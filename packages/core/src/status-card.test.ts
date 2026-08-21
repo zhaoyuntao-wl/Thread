@@ -13,8 +13,7 @@ beforeAll(() => {
   store = new ThreadStore({ eventsPath: join(dir, "events.db"), structuredPath: join(dir, "structured.db"), projectKey: "card-proj" });
   for (let i = 1; i <= 6; i++) {
     store.addGoal("s1", `目标 ${i}`);
-    store.proposeDecision("s1", `决策 ${i}`);
-    store.confirmLatestProposed("s1");
+    store.addDecision("s1", `决策 ${i}`);
   }
   store.addFeedback("s1", "偏好 1", "preference");
   store.append({ session_id: "s1", kind: "user_message", ts: new Date().toISOString(), body: "事件 1" });
@@ -37,7 +36,7 @@ describe("buildStatusCard（外部借鉴 ①③：首轮加权 + 收束语）", 
     store.addPendingCandidate({ sessionId: "s1", text: "候选决策 B", kind: "decision", projectKey: "card-proj" });
     store.addPendingCandidate({ sessionId: "s1", text: "候选偏好 C", kind: "preference", projectKey: "card-proj" });
     const card = buildStatusCard(store, { sessionId: "s1", projectKey: "card-proj" });
-    expect(card).toContain("待确认（3 条");
+    expect(card).toContain("待处理候选（3 条");
     expect(card).toContain("候选偏好 C"); // 最近优先（listPendingCandidates ORDER BY id DESC）
     expect(card).toContain("候选决策 B");
     expect(card).not.toContain("候选决策 A"); // 只露前 2 条，控制预算
@@ -101,8 +100,7 @@ describe("detectSituation（§1.5 P0 情境判定，程序确定性）", () => {
     // 先造一个本会话事件（作为时间基准，用过去时间），再在另一会话定决策（updated_at 明确更晚）
     const past = new Date(Date.now() - 60_000).toISOString();
     store.append({ session_id: "s-change", kind: "user_message", ts: past, body: "本会话事件" });
-    store.proposeDecision("s-other", "新定的开发基线决策（标准模式为主）");
-    store.confirmLatestProposed("s-other");
+    store.addDecision("s-other", "新定的开发基线决策（标准模式为主）");
     // 判定：本会话最新事件（60s 前）< 项目最近决策 updated_at（现在）→ decision-change
     expect(detectSituation(store, { sessionId: "s-change", turn: 2, projectKey: "card-proj" })).toBe("decision-change");
   });
