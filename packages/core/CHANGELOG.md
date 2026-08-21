@@ -1,5 +1,50 @@
 # @thread-memory/core
 
+## 1.0.0
+
+### Major Changes
+
+- 94095a0: 决策/偏好结构通道化 + 目标判定粘贴守卫 + 资源治理 API（2026-08-21 碎片误报治理，发布前定案）
+
+  - **停用决策/偏好自然语言判定**：USER_DECLARE_RE / DECLARE_RE / PREFERENCE_RE / SUPERSEDE_RE / REVOKE_RE / ACCEPT 全部移除——无锚定正则对粘贴/回显文本零防御（生产实证：9 条候选 5 条碎片误报）。决策与偏好只走显式通道（命令/模型工具），文本启发式误报归零
+  - **目标判定保留 + 粘贴守卫**：GOAL_RE（句首祈使动词）保留；新增多行（含换行）与 >200 字符守卫——md 提示词粘贴/附件内联/文件直读均不误判（生产实证：真实目标单行 ≤~105 字符，误报目标为多行粘贴转写）
+  - **显式决策通道 store API**：addDecision（命令/工具创建直接 active）/ promoteCandidate（候选转正，可带修正文本；修旧 confirm 只翻候选状态不落 decisions 行的死路）/ deleteDecision（硬删除 + 血缘边清理，事件流水保留原文）/ supersedeDecisionById（按 id 取代，replacement 继承项目/scope/隔离字段）；移除 confirmLatestProposed / revokeLatestActive / supersedeLatestActive / getLatestProposed 旧 latest 系 API
+  - **资源治理 API（命令重构配套）**：deleteAsset（产出解除登记 + 双库血缘边清理）/ getGoals（全状态目标列表）/ listIsolatedRows 扩展 ast 产出 / unisolateRow 覆盖 knowledge_assets
+  - **产出登记路径幂等 + 隐藏目录排除（2026-08-21 狗粮实证：thread-reg ast 重复与 changeset 噪音）**：registerAsset 同 path 可见范围内去重（只刷新标题，不再堆行——生产 README 同 path 12 行）；classifyWriteEvent 不识别隐藏目录（.changeset 等）下的 md
+  - **完成判定窗口分级（2026-08-21 狗粮误报修复）**：英文 4 字符窗口可碰撞（北极星"Thread"被消息"thread-reg"命中"read"误 completed）→ 含非 ASCII 窗口 ≥4、纯 ASCII 窗口 ≥8 连字符；归一化去空白
+  - 完成判定（短消息守卫 >100 字符）保持不变；事件流水无损 = 未显式记录内容仍可回拉（下限不丢）
+  - 验证链：core 204 单测 + eval 15/15（decision-chain/isolation/rebuild 场景改走显式通道断言）
+
+### Minor Changes
+
+- de482ab: 检索质量升级：FTS5 中文分词（0-e 定案落地，development-priority 项 14）
+
+  - **jieba 预分词 shadow 列**：events_fts 重建为 contentless `body_seg` 列（`@node-rs/jieba` 2.x `Jieba.withDict`，napi-rs 预编译无 build script），写时同步分词索引
+  - **查询侧对称分词 + 全 OR**：替代原单字 AND（"登录方案" → `"登" AND "录" AND "方" AND "案"` 缺一字即 miss）；查询词 jieba 分词 + 停用词过滤 + 全 OR，召回精度交给 BM25
+  - **BM25 时间衰减**：排序 `score ASC, ts DESC`（同分近期优先；深调留 B⑤ 度量）
+  - **降级容错**：jieba 加载失败（平台无预编译二进制）→ 回退单字空格，检索降级不阻塞主路径
+  - **SCHEMA_VERSION 4 → 5**：v4 FTS 表（body 单字）自动重建为 body_seg 并回填历史（幂等，origin 无关）
+  - 新依赖：`@node-rs/jieba@^2.0.2`（含 win32/darwin/linux 预编译 optionalDependencies）
+  - 测试 +12（segment 5 + 中文检索回归 4 + FTS 迁移 1 + 版本断言更新 2），eval 10/10 保持全绿
+
+- a7fa7e8: 情境化记忆传达（§1.5 P0 情境 C+A + 机制 3 决策变更）：buildStatusCard 升级为情境路由器
+
+  - 新增 `situation` 参数（normal/new-session/post-compact/decision-change）与 `detectSituation` 程序判定
+  - 情境 A 新会话续接：首轮有历史 → 追加"会话接续块"（沿用目标/决策），用户无需显式提醒
+  - 情境 C 压缩边界回归：最近事件含 compact_checkpoint → 追加"压缩回归块"（目标重述）
+  - 情境 decision-change（§1.5.3c 机制 3）：项目最近决策 updated_at 晚于本会话最新事件 → 追加"最近决策块"（防模型基于旧状态行动，2026-08-18 误判复盘驱动）
+  - 新增 `getRecentDecisionsMerged`（项目级最近决策，按 updated_at 倒序）
+  - normal 情境不追加传达块（避免每轮塞指令）；隔离模式下不继承
+  - 单测 +11（detectSituation 5 + 传达块 6）
+
+- 023b04e: 检索质量补强：trigram 子串召回兜底（0-e 定案第 5 条落地，SCHEMA_VERSION 6）
+
+  - 新增 `events_fts_tri` 独立 trigram FTS 表：主路径（jieba 词级 BM25）0 命中时，"用户只记得半句"（查询是正文 token 的连续子串）由 trigram 短语匹配兜底召回
+  - 兜底表用纯时间衰减排序（trigram 打分区分度差），隔离/会话过滤语义与主路径一致
+  - **实现修正（2026-08-18）**：初版尝试单表双列（body_seg + body_tri tokenize='trigram'）失败——better-sqlite3 内置 SQLite 3.53.2 不支持 FTS5 列级 tokenizer 覆盖（parse error），改为双表（主表 unicode61 + 独立 trigram 表），语义等价
+  - 迁移：SCHEMA_VERSION 4→5→6 自动重建回填（按兜底表数据量判断，v5 库升级触发）
+  - 测试 +4（v6 迁移、半句子串兜底、隔离语义、<3 字符边界）；query 降级路径测试适配新语义（trigram 优先于降级摘要）
+
 ## 0.1.0
 
 ### Minor Changes
