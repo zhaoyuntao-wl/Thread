@@ -1,5 +1,11 @@
 # @thread-memory/core
 
+## 1.0.1
+
+### Patch Changes
+
+- 发布卫生：dist 排除测试产物（1.0.0 包内曾混入 54 个 `*.test.*` 文件）
+
 ## 1.0.0
 
 ### Major Changes

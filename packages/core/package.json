@@ -1,6 +1,6 @@
 {
   "name": "@thread-memory/core",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Thread core: event pipeline, structured tables, lineage graph, retrieval",
   "license": "MIT",
   "type": "module",
