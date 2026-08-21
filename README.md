@@ -108,7 +108,7 @@ Thread integrates two ways — **deep integration** (recommended) and
 
 | Form | Base | Capabilities |
 |---|---|---|
-| **Deep integration** (recommended) | **dsh** (DeepSeek Harness) via the `dsh-thread` plugin | Full feature set: native tool registration, dynamic skill, compaction event subscription + re-anchoring, optional active compaction, cross-agent delta |
+| **Deep integration** (recommended) | **dsh** (DeepSeek Harness) via the `dsh-thread` plugin — verified with dsh 0.1.1-rc.2 (version support and compat policy: see the [dsh-thread README](https://github.com/zhaoyuntao-wl/dsh-plugin-thread)) | Full feature set: native tool registration, dynamic skill, compaction event subscription + re-anchoring, optional active compaction, cross-agent delta |
 | **Adaptation** | Qoder CLI (hooks + MCP) | Core feature set: lossless capture, status card + delta injection, output recognition, sediment, MCP query tool |
 
 **Why deep integration is recommended**: the strongest channels for making a
