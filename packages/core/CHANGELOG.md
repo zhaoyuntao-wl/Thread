@@ -1,5 +1,11 @@
 # @thread-memory/core
 
+## 1.0.3
+
+### Patch Changes
+
+- docs：底座接入表补充 dsh 版本支持说明（验证于 0.1.1-rc.2，详见 dsh-thread README）
+
 ## 1.0.2
 
 ### Patch Changes
