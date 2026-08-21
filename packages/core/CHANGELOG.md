@@ -1,5 +1,11 @@
 # @thread-memory/core
 
+## 1.0.2
+
+### Patch Changes
+
+- 发布卫生（构建层修复）：build 改用 tsconfig.build.json 排除测试产物（1.0.1 的 .npmignore 方案无效，1.0.2 起 dist 不含任何 _.test._）
+
 ## 1.0.1
 
 ### Patch Changes
