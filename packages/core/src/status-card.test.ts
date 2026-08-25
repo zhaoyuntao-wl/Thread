@@ -36,10 +36,11 @@ describe("buildStatusCard（外部借鉴 ①③：首轮加权 + 收束语）", 
     store.addPendingCandidate({ sessionId: "s1", text: "候选决策 B", kind: "decision", projectKey: "card-proj" });
     store.addPendingCandidate({ sessionId: "s1", text: "候选偏好 C", kind: "preference", projectKey: "card-proj" });
     const card = buildStatusCard(store, { sessionId: "s1", projectKey: "card-proj" });
-    expect(card).toContain("待处理候选（3 条");
+    expect(card).toContain("待处理候选（3）：");
     expect(card).toContain("候选偏好 C"); // 最近优先（listPendingCandidates ORDER BY id DESC）
     expect(card).toContain("候选决策 B");
     expect(card).not.toContain("候选决策 A"); // 只露前 2 条，控制预算
+    expect(card).toContain("候选转正前不得当正式决策执行，处理经 /thread-cfm。");
     // 清理候选，避免影响后续用例
     store.ignoreAllPendingCandidates({ projectKey: "card-proj" });
   });
@@ -52,10 +53,17 @@ describe("buildStatusCard（外部借鉴 ①③：首轮加权 + 收束语）", 
     expect(countOf(first, "目标 ")).toBeGreaterThan(countOf(normal, "目标 "));
   });
 
-  it("首轮档默认 recent 更多（5 条档）", () => {
+  it("首轮档默认 recent 更多（5 条档），事件行新→旧", () => {
     const first = buildStatusCard(store, { sessionId: "s1", projectKey: "card-proj", firstTurn: true });
-    const events = first.split("\n").filter((l) => l.startsWith("  - "));
-    expect(events.length).toBeGreaterThanOrEqual(2);
+    const events = first.split("\n").filter((l) => /^  - \[(user_message|assistant_message)\]/.test(l));
+    expect(events).toHaveLength(2);
+    expect(events[0]).toContain("[assistant_message]"); // getRecentEvents 按 id DESC → 新→旧
+  });
+
+  it("截断时计数标题示总数（前 N/总数）", () => {
+    const card = buildStatusCard(store, { sessionId: "s1", projectKey: "card-proj" });
+    expect(card).toContain("目标（前 5/6）：");
+    expect(card).toContain("决策（前 5/6）：");
   });
 
   it("隔离 + 首轮组合不降级崩溃", () => {
@@ -63,11 +71,43 @@ describe("buildStatusCard（外部借鉴 ①③：首轮加权 + 收束语）", 
     expect(card).toContain("本会话已隔离");
   });
 
-  it("行尾带行 id（① 治理可见性：目标/决策/偏好均可定位）", () => {
+  it("行首带行 id（① 治理可见性：目标/决策/偏好均可定位）", () => {
     const card = buildStatusCard(store, { sessionId: "s1", projectKey: "card-proj" });
-    expect(card).toMatch(/决策 1 #\d+/);
-    expect(card).toMatch(/目标 \d+ #\d+/);
-    expect(card).toMatch(/偏好 1 #\d+/);
+    expect(card).toMatch(/  - #\d+ 决策 1$/m);
+    expect(card).toMatch(/  - #\d+ 目标 \d$/m);
+    expect(card).toMatch(/  - #\d+ 偏好 1$/m);
+  });
+
+  it("2026-08-25 格式规整：截断带省略号 + 正文单行化（换行折叠）", () => {
+    // projectKey 独立（fmt-proj）：隔离视图只看本会话行，且不污染 card-proj 的合并视图（detectSituation 用例依赖）
+    store.addDecision("s-fmt", "长决策".repeat(50), { projectKey: "fmt-proj" });
+    store.append({ session_id: "s-fmt", kind: "user_message", ts: new Date().toISOString(), body: "第一行\n第二行\t第三行" });
+    const card = buildStatusCard(store, { sessionId: "s-fmt", projectKey: "fmt-proj", isolated: true });
+    expect(card).toContain("决策（1）：");
+    expect(card).toMatch(/  - #\d+ (长决策){40}…$/m); // 120 字截断 + 省略号
+    expect(card).toContain("[user_message] 第一行 第二行 第三行");
+    expect(card).not.toContain("第一行\n第二行");
+  });
+
+  it("2026-08-26 决策反例：最近被取代决策入卡（防重提旧案）", () => {
+    const old = store.addDecision("s-anti", "JWT 自签方案", { projectKey: "anti-proj" });
+    const { superseded, replacement } = store.supersedeDecisionById("s-anti", old.id, "改用 Session 认证")!;
+    // 普通视图：反例行附于生效决策末尾，带 [被取代] 标记
+    const card = buildStatusCard(store, { sessionId: "s-anti", projectKey: "anti-proj" });
+    expect(card).toContain("决策（1）：");
+    expect(card).toMatch(new RegExp(`  - #${superseded.id} \\[被取代\\] JWT 自签方案$`, "m"));
+    expect(card).toContain("改用 Session 认证");
+    // 续接情境：接续块加"最近废弃"行
+    const carry = buildStatusCard(store, { sessionId: "s-anti-new", projectKey: "anti-proj", situation: "new-session" });
+    expect(carry).toContain(`最近废弃：JWT 自签方案 #${superseded.id}`);
+    // 隔离视图：他会话的反例不可见
+    const iso = buildStatusCard(store, { sessionId: "s-anti-other", projectKey: "anti-proj", isolated: true });
+    expect(iso).not.toContain("JWT 自签方案");
+    // 边界：无生效决策只剩反例 → 区块以"最近废弃"示人
+    store.deleteDecision(replacement.id);
+    const onlyAnti = buildStatusCard(store, { sessionId: "s-anti", projectKey: "anti-proj" });
+    expect(onlyAnti).toContain("最近废弃：");
+    expect(onlyAnti).toMatch(new RegExp(`  - #${superseded.id} \\[被取代\\] JWT 自签方案$`, "m"));
   });
 });
 
@@ -114,10 +154,54 @@ describe("buildStatusCard 情境传达块（§1.5 P0 C+A）", () => {
     expect(card).toContain("基于以上继续");
   });
 
-  it("post-compact 情境出现压缩回归块（目标重述）", () => {
+  it("post-compact 情境出现压缩回归块（目标重述 + 记忆有损硬规则 + 库存）", () => {
     const card = buildStatusCard(store, { sessionId: "s1", projectKey: "card-proj", situation: "post-compact" });
     expect(card).toContain("压缩后回归");
-    expect(card).toContain("主线目标不变");
+    expect(card).toContain("记忆有损");
+    expect(card).toContain("先调 query_session_memory 回查");
+    expect(card).toContain("库存：");
+    expect(card).toContain("生效决策共");
+    expect(card).toContain("事件流共");
+  });
+
+  it("2026-08-26 压缩库存可见化：待办/未展示决策计数/事件总数（独立 proj 防污染）", () => {
+    store.addTodo({ sessionId: "s-inv", text: "待办一", projectKey: "inv-proj" });
+    store.addTodo({ sessionId: "s-inv", text: "待办二", projectKey: "inv-proj" });
+    store.addDecision("s-inv", "决策一", { projectKey: "inv-proj" });
+    store.addDecision("s-inv", "决策二", { projectKey: "inv-proj" });
+    store.append({ session_id: "s-inv", kind: "user_message", ts: new Date().toISOString(), body: "e1" });
+    store.append({ session_id: "s-inv", kind: "user_message", ts: new Date().toISOString(), body: "e2" });
+    const card = buildStatusCard(store, { sessionId: "s-inv", projectKey: "inv-proj", situation: "post-compact" });
+    expect(card).toContain("待办 2 条");
+    expect(card).toContain("生效决策共 2 条"); // 2 ≤ listLimit：不出现"卡片示前"截断提示
+    expect(card).not.toContain("卡片示前");
+    expect(card).toContain("事件流共 2 条（query/grep 可查）");
+  });
+
+  it("2026-08-26 压缩回归块：无目标也出现（硬规则不依赖目标存在）", () => {
+    // 独立空库：共享 store 已有其他用例的隔离=0 待办（库存待办计数为全局可见语义），无法断言零待办
+    const dir2 = mkdtempSync(join(tmpdir(), "thread-card-empty-"));
+    const store2 = new ThreadStore({
+      eventsPath: join(dir2, "events.db"),
+      structuredPath: join(dir2, "structured.db"),
+      projectKey: "empty-proj",
+    });
+    try {
+      const card = buildStatusCard(store2, { sessionId: "s-empty", projectKey: "empty-proj", situation: "post-compact" });
+      expect(card).toContain("压缩后回归");
+      expect(card).toContain("记忆有损");
+      expect(card).toContain("库存：");
+      expect(card).toContain("待办 0 条"); // 库存行完整陈述，零待办也明示
+      expect(card).toContain("ls 无 target 看目录/库存");
+    } finally {
+      store2.close();
+      rmSync(dir2, { recursive: true, force: true });
+    }
+  });
+
+  it("2026-08-26 隔离 + post-compact 不出现压缩回归块（隔离不继承项目库存）", () => {
+    const card = buildStatusCard(store, { sessionId: "s-inv", projectKey: "inv-proj", situation: "post-compact", isolated: true });
+    expect(card).not.toContain("压缩后回归");
   });
 
   it("normal 情境不出现传达块（避免每轮塞指令）", () => {

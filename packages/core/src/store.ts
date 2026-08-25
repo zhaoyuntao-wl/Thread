@@ -669,6 +669,37 @@ export class ThreadStore {
     return this.structuredDb.prepare(sql).all(...params) as Todo[];
   }
 
+  // 计数镜像 listTodos 过滤（2026-08-26 复盘）：库存行用 listTodos({limit:100}).length 会低估 100+ 待办，
+  // "库里有多少"失真——COUNT 查询不受列表分页截断影响
+  countTodos(opts: { sessionId?: string; projectKey?: string; status?: Todo["status"]; basis?: string; visibleToSession?: string } = {}): number {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (opts.sessionId) {
+      where.push("session_id = ?");
+      params.push(opts.sessionId);
+    }
+    if (opts.projectKey) {
+      where.push("project_key = ?");
+      params.push(opts.projectKey);
+    }
+    if (opts.status) {
+      where.push("status = ?");
+      params.push(opts.status);
+    }
+    if (opts.basis !== undefined) {
+      where.push("basis = ?");
+      params.push(opts.basis);
+    }
+    if (opts.visibleToSession) {
+      where.push("(isolation = 0 OR session_id = ?)");
+      params.push(opts.visibleToSession);
+    }
+    const row = this.structuredDb
+      .prepare(`SELECT COUNT(*) AS c FROM todos${where.length ? ` WHERE ${where.join(" AND ")}` : ""}`)
+      .get(...params) as { c: number };
+    return row.c;
+  }
+
   updateTodoStatus(id: number, status: Todo["status"]): boolean {
     const info = this.structuredDb.prepare(`UPDATE todos SET status = ? WHERE id = ?`).run(status, id);
     return info.changes > 0;
@@ -911,6 +942,14 @@ export class ThreadStore {
       ...r,
       meta: r.meta ? (safeParse(r.meta) as Record<string, unknown>) : undefined,
     }));
+  }
+
+  // 事件计数（2026-08-26 库存可见化：压缩后重锚卡/查询目录视图展示"库里存了多少"）
+  countEvents(sessionId: string): number {
+    const row = this.eventsDb.prepare(`SELECT COUNT(*) AS c FROM events WHERE session_id = ?`).get(sessionId) as {
+      c: number;
+    };
+    return row.c;
   }
 
   updateGoalStatus(sessionId: string, goalId: number, status: GoalStatus): Goal | undefined {

@@ -8,6 +8,7 @@ export interface NavResult {
   kind: "list" | "node" | "content" | "hits";
   title: string;
   items: NavItem[];
+  note?: string;
   context?: { session_id?: string; asset_id?: number; evidence?: string[] };
 }
 
@@ -55,7 +56,12 @@ function visibleAssets(store: ThreadStore, opts: { sessionId?: string; viewer?: 
 }
 
 function navigateLs(store: ThreadStore, target: string | undefined, viewer: string | undefined, limit: number): NavResult {
-  const assetId = target ? Number(target) : NaN;
+  // ls 无 target = 目录视图（2026-08-26 用户定案 ③）：补"模型不知道库里有什么/没有可用 target"的缺口——
+  // 返回活跃会话完整 id（可作后续 ls/cd/cat 的 target）+ 本会话库存计数，查询锚点自足。
+  if (!target) {
+    return navigateDirectory(store, viewer, limit);
+  }
+  const assetId = Number(target);
   if (Number.isInteger(assetId)) {
     // ls <asset>：边关联子项
     const asset = store.getAsset(assetId);
@@ -80,6 +86,35 @@ function navigateLs(store: ThreadStore, target: string | undefined, viewer: stri
     ...todos.map((t) => ({ id: `todo-${t.id}`, type: "todo" as const, label: `${t.text}${t.basis ? `（依据 ${t.basis}）` : ""}` })),
   ];
   return { kind: "list", title: `会话 ${shortSession(sessionId)}：产出 ${assets.length} / 待办 ${todos.length}`, items, context: { session_id: sessionId } };
+}
+
+// 目录视图：活跃会话（完整 id 可作 target）+ 本会话库存计数（待办/生效决策/事件）。
+// 已知局限：只列"有产出"的会话（listActiveSessionsWithAssets 语义），无产出会话暂不可见。
+function navigateDirectory(store: ThreadStore, viewer: string | undefined, limit: number): NavResult {
+  const current = viewer ?? store.getRecentSessionId() ?? "";
+  const sessions = store.listActiveSessionsWithAssets(limit);
+  const items: NavItem[] = sessions.map((s) => ({
+    id: s.session_id,
+    type: "session" as const,
+    label: `${s.session_id === current ? "★" : "·"} ${s.session_id}（${s.latest_title}，最新 ${s.latest_ts.slice(0, 10)}）`,
+    ref: s.session_id,
+  }));
+  let note = "";
+  try {
+    const todoCount = store.countTodos({ visibleToSession: current, status: "pending" });
+    const decisionCount = store.getActiveDecisionsMerged(current).length;
+    const eventCount = store.countEvents(current);
+    note = `本会话库存：待办 ${todoCount} 条；生效决策 ${decisionCount} 条（query kind=decision）；事件 ${eventCount} 条（query/grep 可查）。ls <会话完整 id> 看各会话产出/待办。`;
+  } catch {
+    note = "";
+  }
+  return {
+    kind: "list",
+    title: `目录：活跃会话 ${sessions.length} 个`,
+    items,
+    note: note || undefined,
+    context: current ? { session_id: current } : undefined,
+  };
 }
 
 function navigateCd(store: ThreadStore, target: string | undefined, viewer: string | undefined): NavResult {

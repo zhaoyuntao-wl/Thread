@@ -442,4 +442,23 @@ describe("显式通道资源治理（2026-08-21 /thread-reg|rev|pub 资源集）
     expect(store.unisolateRow("s-g3", "knowledge_assets", a.id)).toBe(true);
     expect(store.listIsolatedRows("s-g3").some((r) => r.kind === "ast")).toBe(false);
   });
+
+  it("countEvents 按会话计数（2026-08-26 库存可见化）", () => {
+    store.append({ session_id: "s-cnt", kind: "user_message", ts: "2026-08-13T00:00:00.000Z", body: "a" });
+    store.append({ session_id: "s-cnt", kind: "tool_call", ts: "2026-08-13T00:00:01.000Z", body: "b" });
+    store.append({ session_id: "s-cnt-other", kind: "user_message", ts: "2026-08-13T00:00:02.000Z", body: "c" });
+    expect(store.countEvents("s-cnt")).toBe(2);
+    expect(store.countEvents("s-none")).toBe(0);
+  });
+
+  it("countTodos 镜像 listTodos 过滤且不受列表分页截断影响（2026-08-26 复盘）", () => {
+    store.addTodo({ sessionId: "s-cnt", text: "t1" });
+    store.addTodo({ sessionId: "s-cnt", text: "t2", projectKey: "k1" });
+    store.addTodo({ sessionId: "s-cnt-other", text: "t3", isolation: true });
+    store.addTodo({ sessionId: "s-cnt-other", text: "t4" });
+    expect(store.countTodos({ visibleToSession: "s-cnt", status: "pending" })).toBe(3); // 非隔离可见（t1/t2/t4）+ 本会话全含；t3 隔离不可见
+    expect(store.countTodos({ sessionId: "s-cnt", projectKey: "k1" })).toBe(1);
+    expect(store.countTodos({ sessionId: "s-none" })).toBe(0);
+    expect(store.countTodos({})).toBe(4);
+  });
 });

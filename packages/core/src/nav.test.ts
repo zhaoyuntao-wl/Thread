@@ -82,6 +82,42 @@ describe("navigate (query primitives ls/cd/cat/grep)", () => {
     }
   });
 
+  it("ls no-target -> directory view（活跃会话完整 id 可作 target + 本会话库存 note）", () => {
+    const { store, dir } = makeStore();
+    try {
+      store.registerAsset({ sessionId: "session-aaaa", path: "docs/a.md", title: "asset A" });
+      store.registerAsset({ sessionId: "session-bbbb", path: "docs/b.md", title: "asset B" });
+      store.addTodo({ sessionId: "session-aaaa", text: "todo 1" });
+      store.addDecision("session-aaaa", "决策一");
+      store.append({ session_id: "session-aaaa", kind: "user_message", ts: "t", body: "e1" });
+      store.append({ session_id: "session-aaaa", kind: "user_message", ts: "t2", body: "e2" });
+      const r = navigate(store, { nav: "ls", viewerSessionId: "session-aaaa" });
+      expect(r.kind).toBe("list");
+      // 完整 id 出现在条目（截断 id 不可作 target 的缺口）
+      expect(r.items.some((i) => i.type === "session" && i.id === "session-bbbb" && i.label.includes("session-bbbb"))).toBe(true);
+      expect(r.items.find((i) => i.id === "session-aaaa")?.label.startsWith("★")).toBe(true);
+      expect(r.note).toContain("待办 1 条");
+      expect(r.note).toContain("生效决策 1 条");
+      expect(r.note).toContain("事件 2 条");
+    } finally {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("ls no-target 且库为空 → 不抛异常，空目录 + 零库存", () => {
+    const { store, dir } = makeStore();
+    try {
+      const r = navigate(store, { nav: "ls", viewerSessionId: "session-zzzz" });
+      expect(r.kind).toBe("list");
+      expect(r.items).toHaveLength(0);
+      expect(r.note).toContain("待办 0 条");
+    } finally {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("cd path -> asset node", () => {
     const { store, dir } = makeStore();
     try {
