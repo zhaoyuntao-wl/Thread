@@ -1,5 +1,11 @@
 # @thread-memory/core
 
+## 1.0.9
+
+### Patch Changes
+
+- d95962b: THREAD_VERSION 报真实版本（构建/发布物读包内 package.json，修复 0.0.0 硬编码）——MCP 握手与适配器版本字段从此可信。
+
 ## 1.0.8
 
 ### Patch Changes
