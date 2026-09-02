@@ -133,4 +133,24 @@ describe("navigate (query primitives ls/cd/cat/grep)", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("2026-09-02 查询输出质量包：ls 产出行带内容首行摘要 + grep 命中带全上下文", () => {
+    const { store, dir } = makeStore();
+    try {
+      const file = join(dir, "docs", "summary.md");
+      mkdirSync(join(dir, "docs"), { recursive: true });
+      writeFileSync(file, "# 标题行\n这是内容首行摘要说明\n正文");
+      store.registerAsset({ sessionId: "s1", path: file, title: "标题行", projectKey: "demo" });
+      const ls = navigate(store, { nav: "ls", target: "s1", viewerSessionId: "s1" });
+      expect(ls.items[0].label).toContain("→ 这是内容首行摘要说明");
+      // grep：长正文不再 200 字硬切，命中即带上下文
+      const longBody = "上下文打包测试：" + "内容".repeat(150);
+      store.append({ session_id: "s1", kind: "user_message", ts: "t", body: longBody });
+      const g = navigate(store, { nav: "grep", query: "上下文打包测试", sessionId: "s1", viewerSessionId: "s1" });
+      expect(g.items.some((i) => i.label.includes("内容".repeat(50)))).toBe(true);
+    } finally {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

@@ -29,6 +29,32 @@ export interface NavigateOptions {
 }
 
 const CONTENT_MAX = 4000;
+// 查询输出质量包（2026-09-02 狗粮反馈）：查询工具是按需通道，命中即带上下文——
+// 正文上限 1500 + 明确标记，不再 200 字硬切（"地图"直接配"弹药"）
+const HIT_BODY_MAX = 1500;
+const ASSET_SUMMARY_MAX = 120;
+
+function bodySnippet(body: string): string {
+  return body.length > HIT_BODY_MAX ? `${body.slice(0, HIT_BODY_MAX)}…[截断，cat <id> 看全文]` : body;
+}
+
+// 产出内容首行摘要（零 LLM：读文件取首个非空行，跳过 # 标题行——标题已在 label）——ls <会话> 的产出行附"这是什么"
+function assetSummary(path: string): string {
+  try {
+    const raw = readFileSync(path, "utf8");
+    const line = raw
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 0 && !l.startsWith("#"));
+    if (!line) {
+      return "";
+    }
+    const t = line.replace(/\s+/g, " ");
+    return t.length > ASSET_SUMMARY_MAX ? `${t.slice(0, ASSET_SUMMARY_MAX)}…` : t;
+  } catch {
+    return "";
+  }
+}
 
 export function navigate(store: ThreadStore, opts: NavigateOptions): NavResult {
   const viewer = opts.viewerSessionId;
@@ -83,7 +109,10 @@ function navigateLs(store: ThreadStore, target: string | undefined, viewer: stri
   const assets = visibleAssets(store, { sessionId, viewer, limit });
   const todos = store.listTodos({ visibleToSession: viewer, sessionId, status: "pending", limit });
   const items: NavItem[] = [
-    ...assets.map((a) => ({ id: `asset-${a.id}`, type: "asset" as const, label: `${a.title}（${a.path}）`, ref: a.path })),
+    ...assets.map((a) => {
+      const summary = assetSummary(a.path);
+      return { id: `asset-${a.id}`, type: "asset" as const, label: `${a.title}（${a.path}）${summary ? ` → ${summary}` : ""}`, ref: a.path };
+    }),
     ...todos.map((t) => ({ id: `todo-${t.id}`, type: "todo" as const, label: `${t.text}${t.basis ? `（依据 ${t.basis}）` : ""}` })),
   ];
   return { kind: "list", title: `会话 ${shortSession(sessionId)}：产出 ${assets.length} / 待办 ${todos.length}`, items, context: { session_id: sessionId } };
@@ -139,7 +168,7 @@ function navigateCd(store: ThreadStore, target: string | undefined, viewer: stri
     }
     const ev = store.expand(id, { sessionId: viewer ?? "" });
     if (!ev.startsWith("[缺失")) {
-      return { kind: "node", title: `event ${id}`, items: [{ id: `event-${id}`, type: "event", label: ev.slice(0, 500) }] };
+      return { kind: "node", title: `event ${id}`, items: [{ id: `event-${id}`, type: "event", label: bodySnippet(ev) }] };
     }
     return { kind: "node", title: `目标 ${target} 不是 asset 也不是 event`, items: [] };
   }
@@ -178,7 +207,7 @@ function navigateGrep(store: ThreadStore, query: string, sessionId: string | und
   const items: NavItem[] = hits.map((h) => ({
     id: `event-${h.id}`,
     type: "event",
-    label: `[${h.kind}] ${h.body.slice(0, 200)}`,
+    label: `[${h.kind}] ${bodySnippet(h.body)}`,
     ref: String(h.id),
   }));
   // 资产标题/路径命中（产出索引）

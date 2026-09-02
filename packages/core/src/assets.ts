@@ -7,7 +7,7 @@ export interface AssetClassification {
   kind: "document" | "report";
   /** 文档路径（原样保留，Windows 反斜杠不动）；报告为合成路径 reports/<tool>-<callId>.md */
   path: string;
-  /** 首行 # 标题（截 80）；兜底 = 文件 basename / 报告名 */
+  /** 首行 # 标题（截 200，2026-09-02 查询输出质量包：80→200 保完整主句）；兜底 = 文件 basename / 报告名 */
   title: string;
   /** 标题提取来源（write 的 content / edit 的 new_string / report 的 output） */
   content?: string;
@@ -25,7 +25,7 @@ const WRITE_TOOLS = new Set([
 
 const REPORT_TOOLS = new Set(["report", "subagent-report", "subagent_report"]);
 
-const TITLE_MAX = 80;
+const TITLE_MAX = 200;
 
 export function parseToolArgs(argumentsRaw: unknown): Record<string, unknown> | undefined {
   if (typeof argumentsRaw === "string") {

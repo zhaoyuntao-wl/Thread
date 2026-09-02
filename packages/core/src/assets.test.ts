@@ -29,10 +29,10 @@ describe("extractTitleFromContent（首行 # 标题，截 80）", () => {
     expect(extractTitleFromContent("没有标题", "docs/a/b.md")).toBe("b.md");
     expect(extractTitleFromContent("", "D:\\x\\y.md")).toBe("y.md");
   });
-  it("超长截断 80", () => {
-    const long = "# " + "长".repeat(100);
+  it("超长截断 200（2026-09-02 查询输出质量包：80→200，保住完整主句）", () => {
+    const long = "# " + "长".repeat(260);
     const t = extractTitleFromContent(long, "x.md");
-    expect(t.length).toBeLessThanOrEqual(81);
+    expect(t.length).toBeLessThanOrEqual(201);
     expect(t.endsWith("…")).toBe(true);
   });
 });
