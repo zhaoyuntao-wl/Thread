@@ -84,6 +84,9 @@ export function runQueryTool(store: ThreadStore, args: QueryToolArgs): QueryTool
           tokenBudget: args.token_budget,
           sessionId,
           limit: args.limit,
+          // 迭代 A（2026-09-02）：产品通道默认开证据组织——去重/多样性/最新态标注/截断 + chrono 加权 + 结构化行优先
+          organize: true,
+          projectKey: store.projectKey,
         });
   return { text: JSON.stringify({ ...result, session_isolation: isolation }, null, 2), session_isolation: isolation };
 }

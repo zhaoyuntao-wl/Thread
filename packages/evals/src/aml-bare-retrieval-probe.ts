@@ -65,7 +65,6 @@ const NOISE_TEMPLATES = [
 ];
 
 function appendNoise(store: ThreadStore, scenarioId: string, count: number): void {
-  let t = 0;
   const base = new Date("2026-08-13T00:00:00.000Z").getTime();
   for (let i = 1; i <= count; i++) {
     const body = NOISE_TEMPLATES[i % NOISE_TEMPLATES.length].replace("{n}", String(i));
@@ -143,16 +142,30 @@ function main(): void {
       appendTopicNoise(store, scenario.id, 100);
       for (const probe of PROBES.filter((p) => p.scenario === scenario.id)) {
         total++;
-        const result = queryMemory(store, probe.query, { sessionId: `aml-${scenario.id}`, tokenBudget: 2000, limit: 5 });
-        const hits = result.results;
-        const firstRelevant = hits.findIndex((r) => r.body.includes(probe.mustContain));
-        const hit = firstRelevant >= 0;
-        const relevantCount = hits.filter((r) => r.body.includes(probe.mustContain)).length;
+        const bare = queryMemory(store, probe.query, { sessionId: `aml-${scenario.id}`, tokenBudget: 2000, limit: 5 });
+        const org = queryMemory(store, probe.query, {
+          sessionId: `aml-${scenario.id}`,
+          tokenBudget: 2000,
+          limit: 5,
+          organize: true,
+          projectKey: "aml-probe",
+        });
+        const summarize = (r: { results: Array<{ body: string; latest?: boolean; structured?: string }> }) => {
+          const first = r.results.findIndex((x) => x.body.includes(probe.mustContain));
+          const relevant = r.results.filter((x) => x.body.includes(probe.mustContain)).length;
+          return { first: first >= 0 ? first + 1 : 0, relevant };
+        };
+        const b = summarize(bare);
+        const o = summarize(org);
+        const hit = o.first > 0;
         const status = hit ? "HIT" : "MISS";
         if (hit) hitCount++;
         else missByKind[probe.kind].push(`${probe.scenario}「${probe.query}」`);
-        const top = hits.slice(0, 3).map((r) => `#${r.segment_id}(${r.score.toFixed(1)}) ${r.body.slice(0, 40)}`).join(" | ");
-        const line = `[${status}] [${probe.kind}] ${probe.scenario}「${probe.query}」→${probe.mustContain}（${probe.note ?? ""}）首个相关@${hit ? firstRelevant + 1 : "无"}，top5 相关 ${relevantCount}/5: ${top || "空"}`;
+        const orgTop = org.results
+          .slice(0, 3)
+          .map((r) => `#${r.segment_id}${r.structured ? `[${r.structured}]` : ""}${r.latest ? "(最新)" : ""} ${r.body.slice(0, 34)}`)
+          .join(" | ");
+        const line = `[${status}] [${probe.kind}] ${probe.scenario}「${probe.query}」裸:首个@${b.first || "无"}·相关${b.relevant}/5 → 组织:首个@${o.first || "无"}·相关${o.relevant}/5 | ${orgTop || "空"}`;
         lines.push(line);
         console.log(line);
       }

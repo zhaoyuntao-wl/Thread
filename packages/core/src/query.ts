@@ -1,10 +1,15 @@
 import type { ThreadStore } from "./store.js";
 import type { EventKind } from "./events.js";
+import { chronoRank, findStructuredPriority, organizeHits } from "./evidence.js";
 
 export interface QueryOptions {
   tokenBudget?: number;
   sessionId?: string;
   limit?: number;
+  // 检索结果组织（2026-09-02 迭代 A）：产品通道显式开启；库默认关（保持 queryMemory 纯检索语义）
+  organize?: boolean;
+  // 结构化行优先的合并视图 projectKey（默认用 store.projectKey）
+  projectKey?: string;
 }
 
 export interface QueryHit {
@@ -15,6 +20,10 @@ export interface QueryHit {
   body: string;
   score: number;
   isolation?: number;
+  // 最新态标注（组织层输出）：同主题高重叠行中时间更新者
+  latest?: boolean;
+  // 结构化行优先命中来源（组织层输出）
+  structured?: "decisions" | "goals" | "feedback";
 }
 
 export type QueryStatus = "found" | "degraded" | "not-found";
@@ -60,7 +69,7 @@ export function queryMemory(
 ): QueryResult {
   const hits = store.search(query, { limit: opts.limit ?? 20, sessionId: opts.sessionId });
 
-  if (hits.length === 0) {
+  if (hits.length === 0 && !opts.organize) {
     const fallback = findEpisodeSummary(store, opts.sessionId, query);
     if (fallback) {
       return {
@@ -76,27 +85,63 @@ export function queryMemory(
     };
   }
 
-  const budgetChars = (opts.tokenBudget ?? DEFAULT_TOKEN_BUDGET) * CHARS_PER_TOKEN;
-  const results: QueryHit[] = [];
-  let used = 0;
-  for (const h of hits) {
-    const item: QueryHit = {
+  let pool: QueryHit[] = [];
+  if (opts.organize) {
+    // 迭代 A：结构化行优先（带状态语义的行置顶，救"决策只在 decisions 表、事件路径 0 命中"的场景）
+    // + chrono 时序加权 + 去重/MMR/最新态标注/行级截断。判定全部确定性、置顶不删改。
+    const structured = findStructuredPriority(store, query, opts.sessionId, opts.projectKey ?? store.projectKey);
+    const raw: QueryHit[] = hits.map((h) => ({
       segment_id: h.id,
       kind: KIND_LABELS[h.kind] ?? h.kind,
       ts: h.ts,
       seq: h.seq,
       body: h.body,
       score: h.score,
-    };
-    const cost = item.body.length + 64;
-    if (used + cost > budgetChars && results.length > 0) {
-      break;
+    }));
+    pool = [...structured, ...chronoRank(raw)];
+    if (pool.length === 0) {
+      const fallback = findEpisodeSummary(store, opts.sessionId, query);
+      if (fallback) {
+        return {
+          status: "degraded",
+          results: organizeHits([fallback], { limit: opts.limit ?? 20 }),
+          note: "精确检索未命中，已退回情节摘要。",
+        };
+      }
+      return {
+        status: "not-found",
+        results: [],
+        note: buildNotFoundNote(query),
+      };
     }
-    results.push(item);
-    used += cost;
+    const organized = organizeHits(pool, { limit: opts.limit ?? 20 });
+    return applyBudget(organized, opts.tokenBudget);
   }
 
-  return { status: "found", results };
+  pool = hits.map((h) => ({
+    segment_id: h.id,
+    kind: KIND_LABELS[h.kind] ?? h.kind,
+    ts: h.ts,
+    seq: h.seq,
+    body: h.body,
+    score: h.score,
+  }));
+  return applyBudget(pool, opts.tokenBudget);
+}
+
+function applyBudget(results: QueryHit[], tokenBudget: number | undefined): QueryResult {
+  const budgetChars = (tokenBudget ?? DEFAULT_TOKEN_BUDGET) * CHARS_PER_TOKEN;
+  const trimmed: QueryHit[] = [];
+  let used = 0;
+  for (const item of results) {
+    const cost = item.body.length + 64;
+    if (used + cost > budgetChars && trimmed.length > 0) {
+      break;
+    }
+    trimmed.push(item);
+    used += cost;
+  }
+  return { status: "found", results: trimmed };
 }
 
 // 结构化事件查询：精确时序/过滤/计数，不走 FTS——服务层抽查/审计路径（接口内聚，单一工具内路由）

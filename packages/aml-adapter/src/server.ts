@@ -101,7 +101,13 @@ export function startAdapter(opts: AdapterOptions): Promise<AdapterRuntime> {
           return;
         }
         const limit = typeof body.limit === "number" && body.limit > 0 ? Math.min(body.limit, 100) : 20;
-        const result = queryMemory(storeFor(userId), query, { limit, tokenBudget: 8000, sessionId: userId });
+        const result = queryMemory(storeFor(userId), query, {
+          limit,
+          tokenBudget: 8000,
+          sessionId: userId,
+          organize: true,
+          projectKey: "aml",
+        });
         // 证据-only：只回命中原文，不生成答案（参赛基本要求 1）
         json(res, 200, {
           ok: true,
