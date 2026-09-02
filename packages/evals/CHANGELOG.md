@@ -1,5 +1,12 @@
 # @thread/evals
 
+## 0.1.9
+
+### Patch Changes
+
+- Updated dependencies [78a8cff]
+  - @thread-memory/core@1.0.8
+
 ## 0.1.8
 
 ### Patch Changes
