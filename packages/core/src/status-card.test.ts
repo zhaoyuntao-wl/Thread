@@ -152,6 +152,8 @@ describe("buildStatusCard 情境传达块（§1.5 P0 C+A）", () => {
     expect(card).toContain("会话接续");
     expect(card).toContain("生效决策");
     expect(card).toContain("基于以上继续");
+    expect(card).toContain("记忆边界："); // 迭代 B：R3 metaknowledge
+    expect(card).toContain("深挖建议："); // 迭代 B：检索建议词
   });
 
   it("post-compact 情境出现压缩回归块（目标重述 + 记忆有损硬规则 + 库存）", () => {
@@ -163,6 +165,7 @@ describe("buildStatusCard 情境传达块（§1.5 P0 C+A）", () => {
     expect(card).toContain("生效决策共");
     expect(card).toContain("事件流共");
     expect(card).toContain("进展脉络（最近"); // R2 进展脉络：压缩后回归块带时间线
+    expect(card).toContain("记忆边界："); // 迭代 B：R3 metaknowledge（卡片未列出≠不存在）
   });
 
   it("2026-08-26 压缩库存可见化：待办/未展示决策计数/事件总数（独立 proj 防污染）", () => {

@@ -1,6 +1,7 @@
 import type { ThreadStore } from "./store.js";
 import { applyScopePriority } from "./store.js";
 import { buildProgressTimeline } from "./progress.js";
+import { MEMORY_BOUNDARY, suggestionsFrom } from "./metaknowledge.js";
 
 function shortSession(sessionId: string): string {
   const cleaned = sessionId.replace(/^session-/, "");
@@ -137,6 +138,12 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
       if (assets.length > 0) lines.push(`  - 最近产出：${assets.map((a) => `${a.title}（${a.path}）`).join("；")}`);
       if (todos.length > 0) lines.push(`  - 待办：${todos.map((t) => `${clip(t.text, 60)} #${t.id}`).join("；")}`);
       lines.push("  基于以上继续，不要重新开始；查更多用 query_session_memory 导航（ls/cd/cat/grep）。");
+      // 迭代 B（R3 metaknowledge + 检索建议词 + 溯源锚，2026-09-02）：接续块尾附边界声明与深挖建议词
+      const sugg = suggestionsFrom([...goals, ...decisions]);
+      if (sugg.length > 0) {
+        lines.push(`  深挖建议：${sugg.join("；")}`);
+      }
+      lines.push(`  ${MEMORY_BOUNDARY}`);
     }
     renderTimeline();
     // 发现层（max 2.4）：活跃会话区块——模型知道别的会话存在
@@ -163,6 +170,12 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
     lines.push(
       "本会话经过压缩，记忆有损：涉及历史状态/本项目情况的话题，先调 query_session_memory 回查（ls 无 target 看目录/库存，cd/cat/grep 下钻），不要凭压缩后记忆直接下结论。",
     );
+    // 迭代 B（2026-09-02）：压缩回归块附深挖建议词 + 记忆边界（卡片未列出≠不存在）
+    const sugg = suggestionsFrom(goals);
+    if (sugg.length > 0) {
+      lines.push(`深挖建议：${sugg.join("；")}`);
+    }
+    lines.push(MEMORY_BOUNDARY);
     const inventory = ((): string => {
       try {
         const parts: string[] = [];

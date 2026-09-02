@@ -11,6 +11,7 @@ export * from "./query-tool.js";
 export * from "./light-confirm.js";
 export * from "./query.js";
 export * from "./evidence.js";
+export * from "./metaknowledge.js";
 export * from "./governor.js";
 export * from "./project-key.js";
 export * from "./migrate.js";
