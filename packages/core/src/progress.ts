@@ -13,6 +13,7 @@ export interface ProgressRow {
   text: string;
   session_id: string;
   scope?: string | null;
+  source_event?: number | null;
   tag?: string;
 }
 
@@ -40,11 +41,12 @@ export function buildProgressTimeline(store: ThreadStore, opts: BuildProgressOpt
           text: d.text,
           session_id: d.session_id,
           scope: d.scope,
+          source_event: d.source_event,
           tag: d.status === "superseded" ? "被取代" : d.status === "revoked" ? "已废弃" : undefined,
         });
       }
       for (const g of store.getActiveGoals(opts.sessionId)) {
-        rows.push({ ts: dateOf(g.updated_at ?? g.created_at), type: "目标", id: g.id, text: g.text, session_id: g.session_id, scope: g.scope });
+        rows.push({ ts: dateOf(g.updated_at ?? g.created_at), type: "目标", id: g.id, text: g.text, session_id: g.session_id, scope: g.scope, source_event: g.source_event });
       }
     } else {
       for (const d of applyScopePriority(store.getRecentDecisionsMerged(opts.sessionId, opts.projectKey, 30))) {
@@ -55,11 +57,12 @@ export function buildProgressTimeline(store: ThreadStore, opts: BuildProgressOpt
           text: d.text,
           session_id: d.session_id,
           scope: d.scope,
+          source_event: d.source_event,
           tag: d.status === "superseded" ? "被取代" : d.status === "revoked" ? "已废弃" : undefined,
         });
       }
       for (const g of applyScopePriority(store.getActiveGoalsMerged(opts.sessionId, opts.projectKey))) {
-        rows.push({ ts: dateOf(g.updated_at ?? g.created_at), type: "目标", id: g.id, text: g.text, session_id: g.session_id, scope: g.scope });
+        rows.push({ ts: dateOf(g.updated_at ?? g.created_at), type: "目标", id: g.id, text: g.text, session_id: g.session_id, scope: g.scope, source_event: g.source_event });
       }
     }
     for (const a of store.listAssets({ visibleToSession: opts.sessionId, limit: 30 })) {

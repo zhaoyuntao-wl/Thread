@@ -44,15 +44,22 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
   const projectKey = opts.projectKey;
   const budgetLines = opts.budgetLines ?? 100;
   const firstTurn = opts.firstTurn ?? false;
-  const recentCount = opts.recentCount ?? (firstTurn ? 5 : 3);
-  const listLimit = firstTurn ? 8 : 5;
-  const feedbackLimit = firstTurn ? 8 : 5;
-  const isolated = opts.isolated ?? false;
   const situation = opts.situation ?? "normal";
+  const isolated = opts.isolated ?? false;
+  // 2026-09-02 质量档（用户定案：卡片仅情境注入非每轮，预算不再第一要素，质量优先）：
+  // 情境卡（new-session/post-compact/decision-change/首轮）放宽行文本上限并全卡逐行溯源锚；normal 刷新卡维持 G6 预算档。
+  const quality = situation !== "normal" || firstTurn;
+  const textCap = quality ? 200 : 120;
+  const carryCap = quality ? 120 : 60;
+  const eventCap = quality ? 120 : 60;
+  const timelineCap = quality ? 120 : 60;
+  const recentCount = opts.recentCount ?? (firstTurn ? 5 : 3);
+  const listLimit = quality ? 8 : 5;
+  const feedbackLimit = quality ? 8 : 5;
 
-  let goals: Array<{ id: number; text: string; scope?: string | null; session_id: string }> = [];
-  let decisions: Array<{ id: number; text: string; scope?: string | null; session_id: string }> = [];
-  let feedback: Array<{ id: number; text: string; scope?: string | null; session_id: string }> = [];
+  let goals: Array<{ id: number; text: string; scope?: string | null; session_id: string; source_event?: number | null }> = [];
+  let decisions: Array<{ id: number; text: string; scope?: string | null; session_id: string; source_event?: number | null }> = [];
+  let feedback: Array<{ id: number; text: string; scope?: string | null; session_id: string; source_event?: number | null }> = [];
   let recent: Array<{ kind: string; body: string }> = [];
   try {
     if (isolated) {
@@ -72,6 +79,9 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
 
   const shareMark = (row: { scope?: string | null; session_id: string }): string =>
     row.scope === "global" ? "（全局）" : row.session_id !== sessionId ? "（来自其他会话）" : "";
+  // 溯源锚（2026-09-02 质量档）：逐行附 source_event 引用，cat <event id> 即回原文（nav cat 支持事件 id）
+  const sourceAnchor = (row: { source_event?: number | null }): string =>
+    row.source_event != null ? `（源#e${row.source_event}）` : "";
 
   const lines: string[] = [];
   lines.push(isolated ? "[Thread 会话记忆状态卡]（本会话已隔离，内容仅自己可见）" : "[Thread 会话记忆状态卡]");
@@ -84,7 +94,7 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
   // 决策反例（2026-08-26 用户定案）：最近一条被取代/废弃的决策入卡——卡片只列生效决策，
   // 模型看不到反例会自信重提旧案；与决策块同视图（merged + scope 优先级 + 隔离语义），取最近一条。
   const anti =
-    ((): { id: number; text: string; scope?: string | null; session_id: string; tag: string } | undefined => {
+    ((): { id: number; text: string; scope?: string | null; session_id: string; source_event?: number | null; tag: string } | undefined => {
       try {
         const rows = isolated
           ? store.getDecisions(sessionId).reverse() // 本会话全状态，id DESC 取最近
@@ -116,18 +126,19 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
     for (const r of timelineRows) {
       const mark = r.scope === "global" ? "（全局）" : r.session_id !== sessionId ? "（来自其他会话）" : "";
       const tag = r.tag ? ` [${r.tag}]` : "";
-      lines.push(`  - ${r.ts} ${r.type} #${r.id}${tag} ${clip(r.text, 60)}${mark}`);
+      const anchor = r.source_event != null ? `（源#e${r.source_event}）` : "";
+      lines.push(`  - ${r.ts} ${r.type} #${r.id}${tag} ${clip(r.text, timelineCap)}${anchor}${mark}`);
     }
     if (nextTodo) {
-      lines.push(`  下一步：${clip(nextTodo.text, 60)} #${nextTodo.id}`);
+      lines.push(`  下一步：${clip(nextTodo.text, 120)} #${nextTodo.id}`);
     }
   };
 
   // 情境 A：新会话续接块（§1.5 P0 + max 2.3.1 接续包）——开场即知上次上下文，无需用户显式提醒
   if (situation === "new-session" && !isolated) {
-    const carryGoals = goals.length > 0 ? `目标：${goals.map((g) => clip(g.text, 60)).join("；")}` : null;
-    const carryDecisions = decisions.length > 0 ? `生效决策：${decisions.map((d) => clip(d.text, 60)).join("；")}` : null;
-    const carryAnti = anti ? `最近废弃：${clip(anti.text, 60)} #${anti.id}` : null;
+    const carryGoals = goals.length > 0 ? `目标：${goals.map((g) => `${clip(g.text, carryCap)}${sourceAnchor(g)}`).join("；")}` : null;
+    const carryDecisions = decisions.length > 0 ? `生效决策：${decisions.map((d) => `${clip(d.text, carryCap)}${sourceAnchor(d)}`).join("；")}` : null;
+    const carryAnti = anti ? `最近废弃：${clip(anti.text, carryCap)} #${anti.id}${sourceAnchor(anti)}` : null;
     const assets = store.listAssets({ visibleToSession: sessionId, limit: 3 });
     const todos = store.listTodos({ visibleToSession: sessionId, status: "pending", limit: 3 });
     if (carryGoals || carryDecisions || carryAnti || assets.length > 0 || todos.length > 0) {
@@ -164,7 +175,7 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
         .slice()
         .reverse()
         .slice(0, listLimit)
-        .forEach((g) => lines.push(`  - #${g.id} ${clip(g.text, 120)}${shareMark(g)}`));
+        .forEach((g) => lines.push(`  - #${g.id} ${clip(g.text, textCap)}${sourceAnchor(g)}${shareMark(g)}`));
     }
     renderTimeline();
     lines.push(
@@ -205,7 +216,7 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
       section("最近决策：");
       recentDecisions.forEach((d) => {
         const status = d.status === "active" ? "生效" : d.status === "proposed" ? "提议" : d.status;
-        lines.push(`  - #${d.id} [${status}] ${clip(d.text, 120)}${shareMark(d)}`);
+        lines.push(`  - #${d.id} [${status}] ${clip(d.text, textCap)}${sourceAnchor(d)}${shareMark(d)}`);
       });
       lines.push("基于最近决策行动；如有冲突需先确认，不要自行推翻。");
     }
@@ -217,7 +228,7 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
       .slice()
       .reverse()
       .slice(0, listLimit)
-      .forEach((g) => lines.push(`  - #${g.id} ${clip(g.text, 120)}${shareMark(g)}`));
+      .forEach((g) => lines.push(`  - #${g.id} ${clip(g.text, textCap)}${sourceAnchor(g)}${shareMark(g)}`));
   }
   if ((decisions.length > 0 || anti !== undefined) && situation !== "new-session") {
     // 无生效决策但有反例：区块以反例示人；有生效决策：反例行附于末尾（[被取代]/[已废弃] 标记与生效项区分）
@@ -228,19 +239,19 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
           : `决策（${decisions.length}）：`
         : "最近废弃：",
     );
-    decisions.slice(0, listLimit).forEach((d) => lines.push(`  - #${d.id} ${clip(d.text, 120)}${shareMark(d)}`));
+    decisions.slice(0, listLimit).forEach((d) => lines.push(`  - #${d.id} ${clip(d.text, textCap)}${sourceAnchor(d)}${shareMark(d)}`));
     if (anti) {
-      lines.push(`  - #${anti.id} [${anti.tag}] ${clip(anti.text, 120)}${shareMark(anti)}`);
+      lines.push(`  - #${anti.id} [${anti.tag}] ${clip(anti.text, textCap)}${sourceAnchor(anti)}${shareMark(anti)}`);
     }
   }
   if (feedback.length > 0) {
     section(`偏好（${feedback.length}）：`);
-    feedback.forEach((f) => lines.push(`  - #${f.id} ${clip(f.text, 120)}${shareMark(f)}`));
+    feedback.forEach((f) => lines.push(`  - #${f.id} ${clip(f.text, textCap)}${sourceAnchor(f)}${shareMark(f)}`));
   }
   if (recent.length > 0) {
     section(`最近事件（${recent.length}）：`);
     // 新→旧：getRecentEvents 已按 id DESC，直接展示与区块语义一致
-    recent.forEach((e) => lines.push(`  - [${e.kind}] ${clip(e.body, 60)}`));
+    recent.forEach((e) => lines.push(`  - [${e.kind}] ${clip(e.body, eventCap)}`));
   }
   // 待处理事项唤醒（§1.5.3d 通道二 + 2026-08-20 复盘修复 + 2026-08-21 收件箱化）：计数 + 前 2 条原文——
   // 无 UI 环境（headless）折叠卡片不触发，候选堆积数天未决（狗粮实证）；完成/转正/丢弃走

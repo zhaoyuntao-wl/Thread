@@ -227,6 +227,36 @@ describe("buildStatusCard 情境传达块（§1.5 P0 C+A）", () => {
     expect(card).toContain("基于最近决策行动");
   });
 
+  it("2026-09-02 质量档：情境卡放宽截断 + 逐行溯源锚（normal 维持预算档）", () => {
+    // 独立库防污染共享 store 的行尾格式断言
+    const dir2 = mkdtempSync(join(tmpdir(), "thread-card-quality-"));
+    const store2 = new ThreadStore({
+      eventsPath: join(dir2, "events.db"),
+      structuredPath: join(dir2, "structured.db"),
+      projectKey: "quality-proj",
+    });
+    try {
+      const dec = "长决策".repeat(45); // 135 字：>120 且 ≤200
+      store2.addDecision("s-q", dec, { projectKey: "quality-proj", sourceEvent: 777 });
+      // normal 刷新卡 = 预算档：120 截断
+      const normal = buildStatusCard(store2, { sessionId: "s-q", projectKey: "quality-proj" });
+      expect(normal).toContain("长决策".repeat(40));
+      expect(normal).not.toContain(dec);
+      // 情境卡（decision-change）= 质量档：135 字完整 + 溯源锚
+      const change = buildStatusCard(store2, { sessionId: "s-q", projectKey: "quality-proj", situation: "decision-change" });
+      expect(change).toContain(dec);
+      expect(change).toContain("（源#e777）");
+      // 接续块（new-session）与进展脉络（post-compact）同样带锚
+      const carry = buildStatusCard(store2, { sessionId: "s-q", projectKey: "quality-proj", situation: "new-session" });
+      expect(carry).toContain("（源#e777）");
+      const post = buildStatusCard(store2, { sessionId: "s-q", projectKey: "quality-proj", situation: "post-compact" });
+      expect(post).toContain("（源#e777）");
+    } finally {
+      store2.close();
+      rmSync(dir2, { recursive: true, force: true });
+    }
+  });
+
   it("normal 情境不出现最近决策块", () => {
     const card = buildStatusCard(store, { sessionId: "s1", projectKey: "card-proj", situation: "normal" });
     expect(card).not.toContain("最近决策");
