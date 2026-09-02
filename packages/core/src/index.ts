@@ -1,4 +1,10 @@
-export const THREAD_VERSION = "0.0.0";
+// 真实版本（2026-09-02 修复 0.0.0 硬编码）：构建/发布物读包内 package.json——MCP 握手版本可信
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const pkg = require("../package.json") as { version?: string };
+
+export const THREAD_VERSION = pkg.version ?? "0.0.0";
 export * from "./events.js";
 export * from "./state.js";
 export * from "./store.js";
