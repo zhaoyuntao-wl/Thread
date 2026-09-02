@@ -1,6 +1,6 @@
 {
   "name": "@thread/aml-adapter",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "AML (Agent Memory Leaderboard) Add/Search adapter: HTTP memory API backed by the Thread kernel, per-user_id isolated stores, evidence-only retrieval",
   "license": "MIT",
   "type": "module",
