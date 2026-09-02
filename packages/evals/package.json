@@ -1,6 +1,6 @@
 {
   "name": "@thread/evals",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Thread regression suite: long-task scenarios, fact-retention checks",
   "license": "MIT",
   "type": "module",
