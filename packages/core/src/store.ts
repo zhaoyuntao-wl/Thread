@@ -318,6 +318,7 @@ export interface KnowledgeAsset {
   session_id: string;
   source_event: number | null;
   created_at: string;
+  project_key?: string | null;
   isolation: number;
 }
 
@@ -550,8 +551,8 @@ export class ThreadStore {
       }
       const row = this.structuredDb
         .prepare(
-          `INSERT INTO knowledge_assets (path, title, topic, scenario, session_id, source_event, created_at, isolation)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+          `INSERT INTO knowledge_assets (path, title, topic, scenario, session_id, source_event, created_at, project_key, isolation)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
         )
         .get(
           input.path,
@@ -561,6 +562,7 @@ export class ThreadStore {
           input.sessionId,
           input.sourceEvent ?? null,
           ts,
+          input.projectKey ?? null,
           input.isolation ? 1 : 0,
         ) as KnowledgeAsset;
       this.addLineageEdge(input.sessionId, "session", null, "asset", row.id, "produces", {
@@ -575,12 +577,17 @@ export class ThreadStore {
     return tx();
   }
 
-  listAssets(opts: { sessionId?: string; visibleToSession?: string; limit?: number } = {}): KnowledgeAsset[] {
+  listAssets(opts: { sessionId?: string; projectKey?: string; visibleToSession?: string; limit?: number } = {}): KnowledgeAsset[] {
     const where: string[] = [];
     const params: unknown[] = [];
     if (opts.sessionId) {
       where.push("session_id = ?");
       params.push(opts.sessionId);
+    }
+    if (opts.projectKey) {
+      // 2026-09-02 跨项目泄漏修复：产出必须项目级过滤（structured.db 跨项目共享）
+      where.push("project_key = ?");
+      params.push(opts.projectKey);
     }
     if (opts.visibleToSession) {
       where.push("(isolation = 0 OR session_id = ?)");
@@ -610,19 +617,22 @@ export class ThreadStore {
     return true;
   }
 
-  // 发现层（2.4）：最近 N 个非隔离、有产出的会话（各带最新产出标题/时间）
-  listActiveSessionsWithAssets(limit: number): Array<{ session_id: string; latest_title: string; latest_ts: string }> {
+  // 发现层（2.4）：最近 N 个非隔离、有产出的会话（各带最新产出标题/时间）。
+  // 2026-09-02 跨项目泄漏修复：加 projectKey 过滤（存量 NULL 行不出现）
+  listActiveSessionsWithAssets(limit: number, projectKey?: string): Array<{ session_id: string; latest_title: string; latest_ts: string }> {
+    const projectFilter = projectKey ? " AND a.project_key = ?" : "";
+    const subFilter = projectKey ? " AND project_key = ?" : "";
     return this.structuredDb
       .prepare(
         `SELECT a.session_id, a.title AS latest_title, a.created_at AS latest_ts
          FROM knowledge_assets a
          JOIN (
-           SELECT session_id, MAX(created_at) AS m FROM knowledge_assets WHERE isolation = 0 GROUP BY session_id
-         ) b ON a.session_id = b.session_id AND a.created_at = b.m AND a.isolation = 0
+           SELECT session_id, MAX(created_at) AS m FROM knowledge_assets WHERE isolation = 0${subFilter} GROUP BY session_id
+         ) b ON a.session_id = b.session_id AND a.created_at = b.m AND a.isolation = 0${projectFilter}
          ORDER BY a.created_at DESC
          LIMIT ?`,
       )
-      .all(limit) as Array<{ session_id: string; latest_title: string; latest_ts: string }>;
+      .all(...(projectKey ? [projectKey, projectKey, limit] : [limit])) as Array<{ session_id: string; latest_title: string; latest_ts: string }>;
   }
 
   addTodo(input: { sessionId: string; text: string; basis?: string; projectKey?: string; isolation?: boolean; ts?: string }): Todo {

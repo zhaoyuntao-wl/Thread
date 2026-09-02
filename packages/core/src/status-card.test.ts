@@ -184,7 +184,7 @@ describe("buildStatusCard 情境传达块（§1.5 P0 C+A）", () => {
   });
 
   it("2026-08-26 压缩回归块：无目标也出现（硬规则不依赖目标存在）", () => {
-    // 独立空库：共享 store 已有其他用例的隔离=0 待办（库存待办计数为全局可见语义），无法断言零待办
+    // 独立空库：库存计数现已带项目过滤（2026-09-02 跨项目泄漏修复），空项目断言零待办
     const dir2 = mkdtempSync(join(tmpdir(), "thread-card-empty-"));
     const store2 = new ThreadStore({
       eventsPath: join(dir2, "events.db"),

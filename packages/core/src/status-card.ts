@@ -113,7 +113,7 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
   const timelineRows = buildProgressTimeline(store, { sessionId, projectKey, limit: 5, isolated });
   const nextTodo = ((): { id: number; text: string } | undefined => {
     try {
-      return store.listTodos({ visibleToSession: sessionId, status: "pending", limit: 1 })[0];
+      return store.listTodos({ visibleToSession: sessionId, projectKey, status: "pending", limit: 1 })[0];
     } catch {
       return undefined;
     }
@@ -139,8 +139,8 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
     const carryGoals = goals.length > 0 ? `目标：${goals.map((g) => `${clip(g.text, carryCap)}${sourceAnchor(g)}`).join("；")}` : null;
     const carryDecisions = decisions.length > 0 ? `生效决策：${decisions.map((d) => `${clip(d.text, carryCap)}${sourceAnchor(d)}`).join("；")}` : null;
     const carryAnti = anti ? `最近废弃：${clip(anti.text, carryCap)} #${anti.id}${sourceAnchor(anti)}` : null;
-    const assets = store.listAssets({ visibleToSession: sessionId, limit: 3 });
-    const todos = store.listTodos({ visibleToSession: sessionId, status: "pending", limit: 3 });
+    const assets = store.listAssets({ visibleToSession: sessionId, projectKey, limit: 3 });
+    const todos = store.listTodos({ visibleToSession: sessionId, projectKey, status: "pending", limit: 3 });
     if (carryGoals || carryDecisions || carryAnti || assets.length > 0 || todos.length > 0) {
       section("会话接续（来自之前的工作）：");
       if (carryGoals) lines.push(`  - ${carryGoals}`);
@@ -157,8 +157,8 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
       lines.push(`  ${MEMORY_BOUNDARY}`);
     }
     renderTimeline();
-    // 发现层（max 2.4）：活跃会话区块——模型知道别的会话存在
-    const activeSessions = store.listActiveSessionsWithAssets(4);
+    // 发现层（max 2.4）：活跃会话区块——模型知道别的会话存在（2026-09-02 起项目级过滤，跨项目零泄漏）
+    const activeSessions = store.listActiveSessionsWithAssets(4, projectKey);
     const others = activeSessions.filter((s) => s.session_id !== sessionId).slice(0, 3);
     if (others.length > 0) {
       lines.push(`活跃会话：${others.map((s) => `${shortSession(s.session_id)}（${s.latest_title}）`).join(" | ")}`);
@@ -190,7 +190,7 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
     const inventory = ((): string => {
       try {
         const parts: string[] = [];
-        const todoCount = store.countTodos({ visibleToSession: sessionId, status: "pending" });
+        const todoCount = store.countTodos({ visibleToSession: sessionId, projectKey, status: "pending" });
         parts.push(`待办 ${todoCount} 条`);
         const shown = Math.min(listLimit, decisions.length);
         parts.push(

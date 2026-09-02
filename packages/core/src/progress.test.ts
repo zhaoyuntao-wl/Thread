@@ -71,4 +71,25 @@ describe("buildProgressTimeline（2026-09-02 R2 进展脉络：确定性时间�
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("跨项目零泄漏（2026-09-02 现网修复）：他项目产出/待办不入时间线", () => {
+    const dir = mkdtempSync(join(tmpdir(), "thread-prog-"));
+    const store = new ThreadStore({
+      eventsPath: join(dir, "events.db"),
+      structuredPath: join(dir, "structured.db"),
+      projectKey: "prog-proj",
+    });
+    try {
+      store.addDecision("s1", "本项目决策", { projectKey: "prog-proj" });
+      store.registerAsset({ sessionId: "s-other", path: "E:/otherWork/one/报价单.xlsx", title: "铝灯罩报价模板", projectKey: "lamp-proj" });
+      store.addTodo({ sessionId: "s-other", text: "联系目标灯厂", projectKey: "lamp-proj" });
+      const rows = buildProgressTimeline(store, { sessionId: "s1", projectKey: "prog-proj", limit: 20 });
+      expect(rows.some((r) => r.text.includes("铝灯罩"))).toBe(false);
+      expect(rows.some((r) => r.text.includes("灯厂"))).toBe(false);
+      expect(rows.some((r) => r.text.includes("本项目决策"))).toBe(true);
+    } finally {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

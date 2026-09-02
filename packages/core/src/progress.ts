@@ -65,10 +65,10 @@ export function buildProgressTimeline(store: ThreadStore, opts: BuildProgressOpt
         rows.push({ ts: dateOf(g.updated_at ?? g.created_at), type: "目标", id: g.id, text: g.text, session_id: g.session_id, scope: g.scope, source_event: g.source_event });
       }
     }
-    for (const a of store.listAssets({ visibleToSession: opts.sessionId, limit: 30 })) {
+    for (const a of store.listAssets({ visibleToSession: opts.sessionId, projectKey: opts.projectKey, limit: 30 })) {
       rows.push({ ts: dateOf(a.created_at), type: "产出", id: a.id, text: `${a.title}（${a.path}）`, session_id: a.session_id });
     }
-    for (const t of store.listTodos({ visibleToSession: opts.sessionId, status: "pending", limit: 30 })) {
+    for (const t of store.listTodos({ visibleToSession: opts.sessionId, projectKey: opts.projectKey, status: "pending", limit: 30 })) {
       rows.push({ ts: dateOf(t.created_at), type: "待办", id: t.id, text: t.text, session_id: t.session_id });
     }
   } catch {

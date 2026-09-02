@@ -461,4 +461,11 @@ describe("显式通道资源治理（2026-08-21 /thread-reg|rev|pub 资源集）
     expect(store.countTodos({ sessionId: "s-none" })).toBe(0);
     expect(store.countTodos({})).toBe(4);
   });
+
+  it("listAssets 项目级过滤（2026-09-02 跨项目泄漏修复）", () => {
+    store.registerAsset({ sessionId: "s-cnt", path: "docs/a.md", title: "A", projectKey: "k1" });
+    store.registerAsset({ sessionId: "s-other", path: "E:/other/b.md", title: "B", projectKey: "k2" });
+    expect(store.listAssets({ projectKey: "k1" }).map((a) => a.title)).toEqual(["A"]);
+    expect(store.listAssets({ projectKey: "k2" }).map((a) => a.title)).toEqual(["B"]);
+  });
 });

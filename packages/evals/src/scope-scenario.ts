@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyTurn, ThreadStore } from "@thread-memory/core";
+import { applyTurn, buildStatusCard, ThreadStore } from "@thread-memory/core";
 import type { CheckResult, ScenarioReport } from "./harness.js";
 
 export function runScopeFilterScenario(): ScenarioReport {
@@ -50,6 +50,22 @@ export function runScopeFilterScenario(): ScenarioReport {
       expectation: "P2 目标视图零泄漏（无 P1 项目目标）",
       passed: !p2Goals.some((g) => g.text.includes("脚手架")),
       detail: `P2 目标: ${p2Goals.map((g) => g.text).join(" | ") || "无"}`,
+    });
+
+    // 2026-09-02 现网修复回归：产出/待办/发现层同样必须项目级过滤（他项目产出曾漏进状态卡进展脉络）
+    store.registerAsset({ sessionId: "p1-s1", path: "docs/p1.md", title: "P1 专属产出", projectKey: "proj-p1" });
+    store.addTodo({ sessionId: "p1-s1", text: "P1 专属待办", projectKey: "proj-p1" });
+    const p2Card = buildStatusCard(store, { sessionId: "p2-s1", projectKey: "proj-p2", situation: "new-session" });
+    checks.push({
+      expectation: "P2 状态卡零泄漏（无 P1 产出/待办）",
+      passed: !p2Card.includes("P1 专属") && !p2Card.includes("P1 专属待办"),
+      detail: p2Card.includes("P1 专属") ? "泄漏：P2 状态卡含 P1 产出" : "P2 状态卡干净",
+    });
+    const p2Assets = store.listAssets({ projectKey: "proj-p2" });
+    checks.push({
+      expectation: "listAssets 项目级过滤（P2 视图无 P1 产出）",
+      passed: p2Assets.length === 0,
+      detail: `P2 产出: ${p2Assets.map((a) => a.title).join(" | ") || "无"}`,
     });
   } finally {
     store.close();

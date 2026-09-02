@@ -46,13 +46,14 @@ export function navigate(store: ThreadStore, opts: NavigateOptions): NavResult {
 
 function visibleAssets(store: ThreadStore, opts: { sessionId?: string; viewer?: string; limit?: number }) {
   if (opts.sessionId) {
-    // 会话资产：查看方可见 = 非隔离 + 本会话隔离可见
+    // 会话资产：查看方可见 = 非隔离 + 本会话隔离可见（会话级视图天然单项目，无需项目过滤——
+    // 保留存量 NULL project_key 行的可见性，2026-09-02 跨项目泄漏修复只作用于跨会话视图）
     return store
       .listAssets(opts.sessionId && opts.viewer === opts.sessionId
         ? { sessionId: opts.sessionId, limit: opts.limit }
         : { sessionId: opts.sessionId, visibleToSession: opts.viewer, limit: opts.limit });
   }
-  return store.listAssets({ visibleToSession: opts.viewer, limit: opts.limit });
+  return store.listAssets({ visibleToSession: opts.viewer, projectKey: store.projectKey, limit: opts.limit });
 }
 
 function navigateLs(store: ThreadStore, target: string | undefined, viewer: string | undefined, limit: number): NavResult {
@@ -92,7 +93,7 @@ function navigateLs(store: ThreadStore, target: string | undefined, viewer: stri
 // 已知局限：只列"有产出"的会话（listActiveSessionsWithAssets 语义），无产出会话暂不可见。
 function navigateDirectory(store: ThreadStore, viewer: string | undefined, limit: number): NavResult {
   const current = viewer ?? store.getRecentSessionId() ?? "";
-  const sessions = store.listActiveSessionsWithAssets(limit);
+  const sessions = store.listActiveSessionsWithAssets(limit, store.projectKey);
   const items: NavItem[] = sessions.map((s) => ({
     id: s.session_id,
     type: "session" as const,
@@ -101,8 +102,8 @@ function navigateDirectory(store: ThreadStore, viewer: string | undefined, limit
   }));
   let note = "";
   try {
-    const todoCount = store.countTodos({ visibleToSession: current, status: "pending" });
-    const decisionCount = store.getActiveDecisionsMerged(current).length;
+    const todoCount = store.countTodos({ visibleToSession: current, projectKey: store.projectKey, status: "pending" });
+    const decisionCount = store.getActiveDecisionsMerged(current, store.projectKey).length;
     const eventCount = store.countEvents(current);
     note = `本会话库存：待办 ${todoCount} 条；生效决策 ${decisionCount} 条（query kind=decision）；事件 ${eventCount} 条（query/grep 可查）。ls <会话完整 id> 看各会话产出/待办。`;
   } catch {
@@ -143,7 +144,7 @@ function navigateCd(store: ThreadStore, target: string | undefined, viewer: stri
     return { kind: "node", title: `目标 ${target} 不是 asset 也不是 event`, items: [] };
   }
   // 文档路径 → 资产
-  const assets = store.listAssets({ visibleToSession: viewer, limit: 50 }).filter((a) => a.path === target || a.path.endsWith(target));
+  const assets = store.listAssets({ visibleToSession: viewer, projectKey: store.projectKey, limit: 50 }).filter((a) => a.path === target || a.path.endsWith(target));
   if (assets.length === 0) {
     return { kind: "node", title: `路径 ${target} 未登记为产出`, items: [] };
   }
@@ -181,7 +182,7 @@ function navigateGrep(store: ThreadStore, query: string, sessionId: string | und
     ref: String(h.id),
   }));
   // 资产标题/路径命中（产出索引）
-  const assets = store.listAssets({ visibleToSession: viewer, limit: 100 }).filter((a) => a.title.includes(query) || a.path.includes(query));
+  const assets = store.listAssets({ visibleToSession: viewer, projectKey: store.projectKey, limit: 100 }).filter((a) => a.title.includes(query) || a.path.includes(query));
   for (const a of assets.slice(0, limit)) {
     items.push({ id: `asset-${a.id}`, type: "asset", label: `${a.title}（${a.path}）`, ref: a.path });
   }

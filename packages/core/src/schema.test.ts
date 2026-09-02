@@ -33,7 +33,7 @@ describe("schema v2 migration (B④ 双库)", () => {
     for (const t of ["spills", "schema_version"]) {
       expect(db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(t), `table ${t}`).toBeTruthy();
     }
-    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(8);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(9);
     db.close();
     rmSync(dir, { recursive: true, force: true });
   });
@@ -80,7 +80,7 @@ describe("schema v2 migration (B④ 双库)", () => {
     for (const t of ["entities", "decision_entities", "metrics", "session_isolation", "pending_candidates", "knowledge_assets", "todos", "thread_meta", "schema_version"]) {
       expect(db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(t), `table ${t}`).toBeTruthy();
     }
-    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(8);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(9);
     db.close();
     rmSync(dir, { recursive: true, force: true });
   });
@@ -123,7 +123,7 @@ describe("schema v2 migration (B④ 双库)", () => {
     expect(hit?.rowid).toBe(1);
     const toolHit = db.prepare("SELECT rowid FROM events_fts WHERE events_fts MATCH ?").get("pwsh") as { rowid: number } | undefined;
     expect(toolHit).toBeUndefined();
-    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(8);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(9);
     db.close();
     rmSync(dir, { recursive: true, force: true });
   });

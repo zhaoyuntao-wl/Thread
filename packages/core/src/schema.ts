@@ -3,7 +3,7 @@ import type { EventKind } from "./events.js";
 import { segment } from "./segment.js";
 import { isIndexable } from "./governor.js";
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 // FTS 表 DDL（0-e 定案：jieba 预分词 shadow 列 body_seg，unicode61 按空格分词）。
 // contentless（content=''）：FTS 仅存分词索引，不映射 content 表列（body_seg 在 events 表不存在，
@@ -162,6 +162,18 @@ export function ensureSchema(db: Database.Database, kind: SchemaKind): void {
         db.exec(`CREATE INDEX IF NOT EXISTS idx_${t}_updated ON ${t}(project_key, updated_at)`);
       }
 
+      // v9（2026-09-02 跨项目泄漏修复）：产出表补 project_key——旧库 ALTER 补齐（存量行 NULL = 项目未知，
+      // 项目过滤视图严格排除；新写入始终带项目），新库随 CREATE 带列
+      {
+        const exists =
+          (db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_assets'`).get() as
+            | { name: string }
+            | undefined) !== undefined;
+        if (exists && !cols("knowledge_assets").has("project_key")) {
+          db.exec(`ALTER TABLE knowledge_assets ADD COLUMN project_key TEXT`);
+        }
+      }
+
       // v7（MAX 批 1 地基）：产出/文档登记 + 待办 + 送达水位（跨会话 delta 触发判定持久化，G5）
       db.exec(`CREATE TABLE IF NOT EXISTS knowledge_assets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -172,10 +184,12 @@ export function ensureSchema(db: Database.Database, kind: SchemaKind): void {
         session_id TEXT NOT NULL,
         source_event INTEGER,
         created_at TEXT NOT NULL,
+        project_key TEXT,
         isolation INTEGER NOT NULL DEFAULT 0
       );`);
       db.exec(`CREATE INDEX IF NOT EXISTS idx_assets_session ON knowledge_assets(session_id, created_at)`);
       db.exec(`CREATE INDEX IF NOT EXISTS idx_assets_visible ON knowledge_assets(isolation, created_at)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_assets_project ON knowledge_assets(project_key, created_at)`);
 
       db.exec(`CREATE TABLE IF NOT EXISTS todos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
