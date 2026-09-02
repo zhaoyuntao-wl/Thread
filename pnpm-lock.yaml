@@ -48,6 +48,19 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
 
+  packages/aml-adapter:
+    dependencies:
+      '@thread-memory/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.7(@types/node@24.13.3)
+
   packages/core:
     dependencies:
       '@node-rs/jieba':

@@ -15,4 +15,5 @@ export * from "./project-key.js";
 export * from "./migrate.js";
 export * from "./paths.js";
 export * from "./status-card.js";
+export * from "./progress.js";
 export * from "./feedback-guard.js";

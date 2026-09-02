@@ -1,5 +1,6 @@
 import type { ThreadStore } from "./store.js";
 import { applyScopePriority } from "./store.js";
+import { buildProgressTimeline } from "./progress.js";
 
 function shortSession(sessionId: string): string {
   const cleaned = sessionId.replace(/^session-/, "");
@@ -97,6 +98,30 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
       }
     })();
 
+  // 进展脉络（2026-09-02 R2，四格第一项）：结构化行变更时间线，"做到哪一步/下一步"的确定性表达
+  const timelineRows = buildProgressTimeline(store, { sessionId, projectKey, limit: 5, isolated });
+  const nextTodo = ((): { id: number; text: string } | undefined => {
+    try {
+      return store.listTodos({ visibleToSession: sessionId, status: "pending", limit: 1 })[0];
+    } catch {
+      return undefined;
+    }
+  })();
+  const renderTimeline = (): void => {
+    if (timelineRows.length === 0) {
+      return;
+    }
+    section(`进展脉络（最近 ${timelineRows.length} 步）：`);
+    for (const r of timelineRows) {
+      const mark = r.scope === "global" ? "（全局）" : r.session_id !== sessionId ? "（来自其他会话）" : "";
+      const tag = r.tag ? ` [${r.tag}]` : "";
+      lines.push(`  - ${r.ts} ${r.type} #${r.id}${tag} ${clip(r.text, 60)}${mark}`);
+    }
+    if (nextTodo) {
+      lines.push(`  下一步：${clip(nextTodo.text, 60)} #${nextTodo.id}`);
+    }
+  };
+
   // 情境 A：新会话续接块（§1.5 P0 + max 2.3.1 接续包）——开场即知上次上下文，无需用户显式提醒
   if (situation === "new-session" && !isolated) {
     const carryGoals = goals.length > 0 ? `目标：${goals.map((g) => clip(g.text, 60)).join("；")}` : null;
@@ -113,6 +138,7 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
       if (todos.length > 0) lines.push(`  - 待办：${todos.map((t) => `${clip(t.text, 60)} #${t.id}`).join("；")}`);
       lines.push("  基于以上继续，不要重新开始；查更多用 query_session_memory 导航（ls/cd/cat/grep）。");
     }
+    renderTimeline();
     // 发现层（max 2.4）：活跃会话区块——模型知道别的会话存在
     const activeSessions = store.listActiveSessionsWithAssets(4);
     const others = activeSessions.filter((s) => s.session_id !== sessionId).slice(0, 3);
@@ -133,6 +159,7 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
         .slice(0, listLimit)
         .forEach((g) => lines.push(`  - #${g.id} ${clip(g.text, 120)}${shareMark(g)}`));
     }
+    renderTimeline();
     lines.push(
       "本会话经过压缩，记忆有损：涉及历史状态/本项目情况的话题，先调 query_session_memory 回查（ls 无 target 看目录/库存，cd/cat/grep 下钻），不要凭压缩后记忆直接下结论。",
     );

@@ -1,0 +1,20 @@
+{
+  "name": "@thread/aml-adapter",
+  "version": "0.1.0",
+  "description": "AML (Agent Memory Leaderboard) Add/Search adapter: HTTP memory API backed by the Thread kernel, per-user_id isolated stores, evidence-only retrieval",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/server.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@thread-memory/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  }
+}

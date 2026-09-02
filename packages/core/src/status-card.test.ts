@@ -162,6 +162,7 @@ describe("buildStatusCard 情境传达块（§1.5 P0 C+A）", () => {
     expect(card).toContain("库存：");
     expect(card).toContain("生效决策共");
     expect(card).toContain("事件流共");
+    expect(card).toContain("进展脉络（最近"); // R2 进展脉络：压缩后回归块带时间线
   });
 
   it("2026-08-26 压缩库存可见化：待办/未展示决策计数/事件总数（独立 proj 防污染）", () => {
@@ -176,6 +177,7 @@ describe("buildStatusCard 情境传达块（§1.5 P0 C+A）", () => {
     expect(card).toContain("生效决策共 2 条"); // 2 ≤ listLimit：不出现"卡片示前"截断提示
     expect(card).not.toContain("卡片示前");
     expect(card).toContain("事件流共 2 条（query/grep 可查）");
+    expect(card).toContain("下一步：待办二 #"); // R2：最新待办即"下一步"
   });
 
   it("2026-08-26 压缩回归块：无目标也出现（硬规则不依赖目标存在）", () => {
