@@ -33,10 +33,59 @@ function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-// 截断带省略号（先单行化再截：折叠会缩短文本，避免误加省略号）
+// 截断（2026-10-07 论坛反馈修复）：纯头部截断会把句尾的适用条件/例外切掉，卡片上这条决策读起来像无条件的
+//（Codex/Dedale-Project 合成 store 复现：条件从句在尾 → normal/new-session/post-compact 三卡全丢；移到句首 → 全留）。
+// 改为头+尾保留：中间省略号；**末尾整句优先完整保留**（条件/例外/否定几乎总在句尾）；头部尽量收在句末标点上。
+const CLIP_TAIL_RATIO = 0.35;
+const CLIP_TAIL_MIN = 24;
+// 为保住末尾整句，尾部最多可占的比例（头部相应让位，总长仍受 n 约束）
+const CLIP_TAIL_MAX_RATIO = 0.6;
+// 强句末（整句边界）/ 弱句末（分句边界）：尾部优先保强句，弱句只在强句超预算时兜底
+const STRONG_END = /[。！？.!?]/;
+const WEAK_END = /[；;]/;
+
+// limit 之前最后一个句末标点的"下一句起点"；未找到返回 undefined
+function sentenceStartBefore(text: string, limit: number, kind: "strong" | "any"): number | undefined {
+  for (let i = Math.min(limit, text.length - 2); i >= 0; i--) {
+    const ch = text[i];
+    if (STRONG_END.test(ch) || (kind === "any" && WEAK_END.test(ch))) {
+      return i + 1;
+    }
+  }
+  return undefined;
+}
+
+// 尾部：优先保留"末尾强句"整句；超预算时退到"末尾弱句"；再不行按比例切字符
+function tailLength(text: string, budget: number, max: number): number {
+  const strongStart = sentenceStartBefore(text, text.length - 1, "strong");
+  if (strongStart !== undefined) {
+    const len = text.length - strongStart;
+    if (len > 0 && len <= max) {
+      return len;
+    }
+  }
+  const anyStart = sentenceStartBefore(text, text.length - 1, "any");
+  if (anyStart !== undefined) {
+    const len = text.length - anyStart;
+    if (len > 0 && len <= max) {
+      return len;
+    }
+  }
+  return budget;
+}
+
 function clip(text: string, n: number): string {
   const t = oneLine(text);
-  return t.length <= n ? t : `${t.slice(0, n)}…`;
+  if (t.length <= n) {
+    return t;
+  }
+  const tailBudget = Math.max(CLIP_TAIL_MIN, Math.round(n * CLIP_TAIL_RATIO));
+  const tailMax = Math.max(tailBudget, Math.round(n * CLIP_TAIL_MAX_RATIO));
+  const tailLen = tailLength(t, tailBudget, tailMax);
+  const headBudget = Math.max(1, n - tailLen);
+  const boundary = sentenceStartBefore(t, headBudget, "any");
+  const headCut = boundary !== undefined && boundary >= Math.round(headBudget * 0.5) && boundary <= headBudget ? boundary : headBudget;
+  return `${t.slice(0, headCut).trimEnd()}…${t.slice(t.length - tailLen).trimStart()}`;
 }
 
 export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions): string {
@@ -137,7 +186,9 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
   // 情境 A：新会话续接块（§1.5 P0 + max 2.3.1 接续包）——开场即知上次上下文，无需用户显式提醒
   if (situation === "new-session" && !isolated) {
     const carryGoals = goals.length > 0 ? `目标：${goals.map((g) => `${clip(g.text, carryCap)}${sourceAnchor(g)}`).join("；")}` : null;
-    const carryDecisions = decisions.length > 0 ? `生效决策：${decisions.map((d) => `${clip(d.text, carryCap)}${sourceAnchor(d)}`).join("；")}` : null;
+    // 决策行走 textCap 而非 carryCap（2026-10-07 论坛反馈修复）：resumed-session 是最需要保真的路径，
+    // 但决策在这里曾用最紧的 120 上限——句尾适用条件最容易在这一档被切掉
+    const carryDecisions = decisions.length > 0 ? `生效决策：${decisions.map((d) => `${clip(d.text, textCap)}${sourceAnchor(d)}`).join("；")}` : null;
     const carryAnti = anti ? `最近废弃：${clip(anti.text, carryCap)} #${anti.id}${sourceAnchor(anti)}` : null;
     const assets = store.listAssets({ visibleToSession: sessionId, projectKey, limit: 3 });
     const todos = store.listTodos({ visibleToSession: sessionId, projectKey, status: "pending", limit: 3 });

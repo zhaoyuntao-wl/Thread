@@ -20,6 +20,7 @@ export * from "./evidence.js";
 export * from "./metaknowledge.js";
 export * from "./governor.js";
 export * from "./project-key.js";
+export * from "./locate.js";
 export * from "./migrate.js";
 export * from "./paths.js";
 export * from "./status-card.js";

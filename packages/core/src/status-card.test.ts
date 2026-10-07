@@ -84,7 +84,7 @@ describe("buildStatusCard（外部借鉴 ①③：首轮加权 + 收束语）", 
     store.append({ session_id: "s-fmt", kind: "user_message", ts: new Date().toISOString(), body: "第一行\n第二行\t第三行" });
     const card = buildStatusCard(store, { sessionId: "s-fmt", projectKey: "fmt-proj", isolated: true });
     expect(card).toContain("决策（1）：");
-    expect(card).toMatch(/  - #\d+ (长决策){40}…$/m); // 120 字截断 + 省略号
+    expect(card).toMatch(/  - #\d+ (?:长决策){26}…(?:长决策){14}$/m); // head 78 字（26×3）+ … + tail 42 字（14×3）
     expect(card).toContain("[user_message] 第一行 第二行 第三行");
     expect(card).not.toContain("第一行\n第二行");
   });
@@ -238,9 +238,9 @@ describe("buildStatusCard 情境传达块（§1.5 P0 C+A）", () => {
     try {
       const dec = "长决策".repeat(45); // 135 字：>120 且 ≤200
       store2.addDecision("s-q", dec, { projectKey: "quality-proj", sourceEvent: 777 });
-      // normal 刷新卡 = 预算档：120 截断
+      // normal 刷新卡 = 预算档：120 上限（head 78 字 + … + tail 42 字，头+尾保留）
       const normal = buildStatusCard(store2, { sessionId: "s-q", projectKey: "quality-proj" });
-      expect(normal).toContain("长决策".repeat(40));
+      expect(normal).toContain("长决策".repeat(26));
       expect(normal).not.toContain(dec);
       // 情境卡（decision-change）= 质量档：135 字完整 + 溯源锚
       const change = buildStatusCard(store2, { sessionId: "s-q", projectKey: "quality-proj", situation: "decision-change" });
@@ -254,6 +254,38 @@ describe("buildStatusCard 情境传达块（§1.5 P0 C+A）", () => {
     } finally {
       store2.close();
       rmSync(dir2, { recursive: true, force: true });
+    }
+  });
+
+  it("2026-10-07 论坛反馈修复：句尾适用条件不因截断丢失（头+尾保留 + 末尾整句优先）", () => {
+    // 反馈原文（Codex/Dedale-Project）：动作在前、条件在尾的长决策在三张情境卡里条件全丢，卡片读起来像无条件的
+    const action =
+      "Wait within a bounded timeout before retrying writer admission. Preserve the application retry budget and record the transaction timeline and extended SQLite error code before choosing a recovery action.";
+    const condition = " Only while another writer is still active; never for a stale read snapshot after that writer has committed.";
+    const dir3 = mkdtempSync(join(tmpdir(), "thread-card-clip-"));
+    const store3 = new ThreadStore({
+      eventsPath: join(dir3, "events.db"),
+      structuredPath: join(dir3, "structured.db"),
+      projectKey: "clip-proj",
+    });
+    try {
+      store3.addDecision("s-clip", action + condition, { projectKey: "clip-proj", sourceEvent: 4242 });
+      for (const situation of ["new-session", "post-compact", "decision-change", "normal"] as const) {
+        const card = buildStatusCard(store3, { sessionId: "s-clip", projectKey: "clip-proj", situation });
+        expect(card, `${situation}: 头部动作应保留`).toContain("Wait within a bounded timeout");
+        if (situation !== "normal") {
+          // 质量档：末尾整句（适用条件 + 排除项）完整存活
+          expect(card, `${situation}: 条件句首应存活`).toContain("Only while another writer is still active");
+          expect(card, `${situation}: 条件句尾应存活`).toContain("never for a stale read snapshot");
+        } else {
+          // 预算档（normal 刷新卡）只保证句尾片段存活，靠溯源锚回全文
+          expect(card, "normal: 句尾片段应存活").toContain("after that writer has committed");
+        }
+        expect(card, `${situation}: 溯源锚`).toContain("（源#e4242）");
+      }
+    } finally {
+      store3.close();
+      rmSync(dir3, { recursive: true, force: true });
     }
   });
 

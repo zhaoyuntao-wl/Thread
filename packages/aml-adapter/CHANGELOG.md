@@ -1,5 +1,12 @@
 # @thread/aml-adapter
 
+## 0.1.8
+
+### Patch Changes
+
+- Updated dependencies
+  - @thread-memory/core@1.0.12
+
 ## 0.1.7
 
 ### Patch Changes

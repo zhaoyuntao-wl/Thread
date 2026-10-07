@@ -1,5 +1,15 @@
 # @thread-memory/core
 
+## 1.0.12
+
+### Patch Changes
+
+- 状态卡行截断改**头+尾保留**（2026-10-07 论坛反馈修复）：纯头部截断会把句尾的适用条件/例外整段切掉，卡片上这条决策读起来像无条件的（反馈方用合成 store 复现：条件从句在尾 → normal/new-session/post-compact 三卡全丢，移到句首则全留）。现改为"中间省略号 + 末尾整句优先保留"（强句末 → 弱句末 → 按比例兜底），resumed-session 接续块的决策行改用决策上限（120→200）而不是接续预算；normal 刷新卡同规则。新增 acceptance 用例：动作在前、条件在尾的长决策，三张情境卡必须保住条件句首尾，normal 档至少保住句尾片段，四档都带 `（源#eN）`。
+
+  新增导出 `locateSession(root, sessionId)`：按会话定位其所在项目桶（eventsPath + projectKey）——查询通道"按调用方会话取库"的 core 侧支撑（配套 dsh-thread 1.4.0 的作用域修复）。
+
+  行为契约补一句决策写作约定：先写适用条件/例外、再写动作（条件在句首，卡片截断时也读得懂）。
+
 ## 1.0.11
 
 ### Patch Changes
