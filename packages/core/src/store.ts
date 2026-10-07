@@ -852,6 +852,14 @@ export class ThreadStore {
       FROM ${ftsTable} f JOIN events e ON e.id = f.rowid
       WHERE ${ftsTable} MATCH ?`;
     const params: unknown[] = [match];
+    // 项目作用域过滤（2026-10-07 跨工作区串桶修复下半场）：同一桶里可能存有历史误键行
+    //（进程 cwd 定桶时代写进来的别的工作区事件），只按会话/隔离过滤会让它们出现在本项目查询结果里。
+    // 显式点名会话时放行该会话的行（"查这个会话的历史"必须有效）；存量 NULL 行仍可见（旧行无 project_key，
+    // 隐藏会丢历史——与知识产出侧同一处置）。
+    if (this.projectKey) {
+      sql += ` AND (e.project_key = ? OR e.project_key IS NULL OR e.session_id = ?)`;
+      params.push(this.projectKey, opts.sessionId ?? "");
+    }
     if (opts.sessionId) {
       // 当前会话可见自己的全部内容（含隔离），其他会话只见未隔离行
       sql += ` AND (e.session_id = ? OR e.isolation = 0)`;
