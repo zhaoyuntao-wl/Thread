@@ -36,3 +36,7 @@ docs/thread-feature-checklist.md
 docs/open-source-audit.memo.md
 docs/local/
 .thread/
+
+# 行为验收 rig 运行产物（夹具 SQLite 库 / 证据 JSONL / 临时 THREAD_ROOT / 逐格 stdout）
+# 装置源码在 packages/evals/src/trial，**要入库**；这里只忽略跑出来的数据。
+.trial/

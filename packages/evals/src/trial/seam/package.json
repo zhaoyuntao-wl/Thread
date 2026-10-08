@@ -1,0 +1,8 @@
+{
+  "name": "dsh-thread-trial-seam",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "description": "Thread 行为验收 rig 的测试专用注入缝（不发布；只在 trial profile 里经 --patch 挂载）"
+}
