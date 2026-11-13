@@ -2,6 +2,7 @@ import type { ThreadStore } from "./store.js";
 import { applyScopePriority } from "./store.js";
 import { parseBrief } from "./handoff.js";
 import { buildProgressTimeline } from "./progress.js";
+import { progressFor, renderEvidenceLine } from "./verification.js";
 import { MEMORY_BOUNDARY, suggestionsFrom } from "./metaknowledge.js";
 
 function shortSession(sessionId: string): string {
@@ -343,6 +344,18 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
     } catch {
       // 失败降级，不阻塞
     }
+  }
+  // 验收证据（P0-2）：有登记条目才显示，避免给无验收目标的会话增噪
+  try {
+    if (opts.projectKey !== undefined) {
+      const progress = progressFor(store, opts.projectKey);
+      if (progress.total > 0) {
+        if (lines.length > 1) lines.push("");
+        lines.push(renderEvidenceLine(progress));
+      }
+    }
+  } catch {
+    // 证据表缺失等异常不影响卡片主路径
   }
   // 收束语（外部借鉴③）：绑定式行动收束，防止纯"再想想"式开放引导
   if (lines.length > 1) lines.push("");

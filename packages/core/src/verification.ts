@@ -45,12 +45,45 @@ function gitCommit(cwd: string | undefined): string | null {
 
 // 证据门（P0-2）：一条验收条目必须留有真实执行证据（命令 + 退出码 + 环境指纹 + commit），
 // 不接受"模型说通过了"；缺命令的条目记为缺环境，不算通过。
+const criteriaKey = (projectKey: string): string => `criteria:${projectKey}`;
+
+// 验收条目登记：verify 时自动登记条目键（去重保序），卡片/面板据此计算进度。
+export function registerCriteria(store: ThreadStore, projectKey: string, criteria: Criterion[]): Criterion[] {
+  const existing = criteriaFor(store, projectKey);
+  const keys = new Set(existing.map((c) => c.key));
+  const merged = [...existing];
+  for (const criterion of criteria) {
+    if (!keys.has(criterion.key)) {
+      merged.push({ key: criterion.key });
+      keys.add(criterion.key);
+    }
+  }
+  store.setMeta(criteriaKey(projectKey), JSON.stringify(merged));
+  return merged;
+}
+
+export function criteriaFor(store: ThreadStore, projectKey: string): Criterion[] {
+  const raw = store.getMeta(criteriaKey(projectKey));
+  if (raw === undefined) return [];
+  try {
+    const parsed = JSON.parse(raw) as Array<{ key?: unknown }>;
+    return parsed.filter((c) => typeof c.key === "string").map((c) => ({ key: String(c.key) }));
+  } catch {
+    return [];
+  }
+}
+
+export function progressFor(store: ThreadStore, projectKey: string): { proven: number; total: number; missing: string[] } {
+  return evidenceProgress(store, { projectKey, criteria: criteriaFor(store, projectKey) });
+}
+
 export function verifyCriteria(
   store: ThreadStore,
   opts: { projectKey: string; sessionId: string; criteria: Criterion[]; cwd?: string },
 ): VerifyReport {
   const env = `${platform()} ${release()}`;
   const results: VerifyResult[] = [];
+  registerCriteria(store, opts.projectKey, opts.criteria);
   for (const criterion of opts.criteria) {
     const cwd = criterion.cwd ?? opts.cwd;
     if (criterion.command === undefined) {

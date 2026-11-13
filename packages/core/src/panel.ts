@@ -1,6 +1,7 @@
 import type { ThreadStore } from "./store.js";
 import { queryEvents } from "./query.js";
 import { lastInjection } from "./receipt.js";
+import { listEvidenceRows, progressFor, renderEvidenceLine } from "./verification.js";
 
 export interface PanelOptions {
   sessionId: string;
@@ -42,6 +43,22 @@ export function renderPanel(store: ThreadStore, opts: PanelOptions): string {
   lines.push("", "本轮注入：");
   lines.push(receipt === undefined ? "  - （本会话还没有注入记录）" : `  - ${receipt.ts} [${receipt.kind}] ${clip(receipt.summary, 120)}`);
 
+  lines.push("", "验收证据：");
+  if (opts.projectKey === undefined) {
+    lines.push("  - （缺少项目键，无法计算验收进度）");
+  } else {
+    const progress = progressFor(store, opts.projectKey);
+    if (progress.total === 0) {
+      lines.push("  - （未登记验收条目）");
+    } else {
+      lines.push(`  - ${renderEvidenceLine(progress)}`);
+      for (const row of listEvidenceRows(store, { projectKey: opts.projectKey }).slice(0, limit)) {
+        const mark = row.passed === 1 ? "✓" : "✗";
+        lines.push(`  - ${mark} ${row.criterion} exit=${row.exit ?? "?"} ${clip(row.command ?? "", 60)}`);
+      }
+    }
+  }
+
   const handoffs = store.listHandoffs({ status: undefined, limit: limit * 2 });
   const live = handoffs.filter((h) => h.status !== "ack");
   lines.push("", `交接（未确认 ${live.length}）：`);
@@ -57,8 +74,7 @@ export function renderPanel(store: ThreadStore, opts: PanelOptions): string {
     lines.push(`  - #${row.id} [${row.status}] ${clip(goal, 70)}（from ${row.from_session} · to ${target}）`);
   }
 
-  const events = queryEvents(store, { sessionId: opts.sessionId, order: "desc", limit: limit }).results;
-  lines.push("", `最近事件（${events.length}）：`);
+  const events = queryEvents(store, { sessionId: opts.sessionId, order: "desc", limit: limit }).results;  lines.push("", `最近事件（${events.length}）：`);
   if (events.length === 0) lines.push("  - （无）");
   for (const event of events) lines.push(`  - ${event.ts} ${event.kind} ${clip(event.body, 80)}`);
 
