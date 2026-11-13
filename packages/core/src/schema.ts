@@ -3,7 +3,7 @@ import type { EventKind } from "./events.js";
 import { segment } from "./segment.js";
 import { isIndexable } from "./governor.js";
 
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 // FTS 表 DDL（0-e 定案：jieba 预分词 shadow 列 body_seg，unicode61 按空格分词）。
 // contentless（content=''）：FTS 仅存分词索引，不映射 content 表列（body_seg 在 events 表不存在，
@@ -221,6 +221,21 @@ export function ensureSchema(db: Database.Database, kind: SchemaKind): void {
       db.exec(`CREATE INDEX IF NOT EXISTS idx_handoffs_target ON handoffs(project_key, status)`);
       db.exec(`CREATE INDEX IF NOT EXISTS idx_handoffs_task ON handoffs(task_id, status)`);
       db.exec(`CREATE INDEX IF NOT EXISTS idx_handoffs_from ON handoffs(from_session)`);
+
+    db.exec(`CREATE TABLE IF NOT EXISTS evidence (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_key TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      criterion TEXT NOT NULL,
+      command TEXT,
+      exit INTEGER,
+      passed INTEGER NOT NULL DEFAULT 0,
+      env_fingerprint TEXT NOT NULL DEFAULT '',
+      commit_ref TEXT,
+      created_at TEXT NOT NULL
+    )`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_evidence_project ON evidence(project_key, criterion)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_evidence_session ON evidence(session_id)`);
 
       db.exec(`CREATE TABLE IF NOT EXISTS thread_meta (
         key TEXT PRIMARY KEY,

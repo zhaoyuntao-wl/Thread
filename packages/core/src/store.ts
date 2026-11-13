@@ -830,6 +830,36 @@ export class ThreadStore {
     return this.structuredDb.prepare(sql).get(opts.ts ?? new Date().toISOString(), ...params) as Handoff | undefined;
   }
 
+  addEvidence(input: {
+    projectKey: string;
+    sessionId: string;
+    criterion: string;
+    command?: string | null;
+    exit?: number | null;
+    passed: boolean;
+    envFingerprint: string;
+    commit?: string | null;
+  }): number {
+    const now = new Date().toISOString();
+    const result = this.structuredDb
+      .prepare(
+        `INSERT INTO evidence (project_key, session_id, criterion, command, exit, passed, env_fingerprint, commit_ref, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.projectKey,
+        input.sessionId,
+        input.criterion,
+        input.command ?? null,
+        input.exit ?? null,
+        input.passed ? 1 : 0,
+        input.envFingerprint,
+        input.commit ?? null,
+        now,
+      );
+    return Number(result.lastInsertRowid);
+  }
+
   setHandoffStatus(id: number, status: Handoff["status"], ts?: string): boolean {
     const now = ts ?? new Date().toISOString();
     const column = status === "delivered" ? "delivered_at" : status === "ack" ? "acked_at" : "created_at";
