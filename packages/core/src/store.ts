@@ -1472,6 +1472,26 @@ export class ThreadStore {
     return this.structuredDb.prepare(`SELECT * FROM decisions WHERE session_id = ? ORDER BY id`).all(sessionId) as Decision[];
   }
 
+  // 全状态按项目合并（面板用）：与 getActiveDecisionsMerged 同口径，但可指定 status（superseded/proposed）。
+  // 面板只看会话会把"别的会话定的项目决策"显示成 0，与状态卡（同一份数据按项目合并）自相矛盾。
+  getDecisionsMerged(sessionId: string, status?: DecisionStatus, projectKey?: string): Decision[] {
+    if (!projectKey) {
+      return this.getDecisions(sessionId, status);
+    }
+    const where = [
+      "(session_id = ? OR (project_key = ? AND scope = 'project'))",
+      "(session_id = ? OR isolation = 0)",
+    ];
+    const params: unknown[] = [sessionId, projectKey, sessionId];
+    if (status !== undefined) {
+      where.push("status = ?");
+      params.push(status);
+    }
+    return this.structuredDb
+      .prepare(`SELECT * FROM decisions WHERE ${where.join(" AND ")} ORDER BY id`)
+      .all(...params) as Decision[];
+  }
+
   // 血缘分库（B④）：任一端 ∈ {goal,decision,feedback} → 结构化库；两端均 ∈ {event,file,tool} → 事件库
   private lineageDb(srcType: string, dstType: string): Database.Database {
     const srcEvent = srcType === "event" || srcType === "file" || srcType === "tool";

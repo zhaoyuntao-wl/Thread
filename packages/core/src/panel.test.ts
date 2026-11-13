@@ -55,6 +55,18 @@ describe("renderPanel", () => {
     expect(text).toContain("（无生效决策）");
   });
 
+  // 2026-11-14 实测：新会话面板"生效 0"，同一轮状态卡却列了 11 条项目决策——面板只按会话过滤
+  it("新会话看得到同项目生效决策（与状态卡同口径）", () => {
+    const text = renderPanel(store, { sessionId: "fresh-session", projectKey: "panel-proj" });
+    expect(text).toContain("条件：只读；面板用纯文本渲染，底座无关");
+    expect(text).toMatch(/决策链（生效 [1-9]\d* · 已被取代 1）/);
+  });
+
+  it("换了项目键就不串味", () => {
+    const text = renderPanel(store, { sessionId: "fresh-session", projectKey: "other-proj" });
+    expect(text).toContain("（无生效决策）");
+  });
+
   it("验收证据每个条目只显示最新一条", () => {
     registerCriteria(store, "panel-proj", [{ key: "lint" }]);
     store.addEvidence({

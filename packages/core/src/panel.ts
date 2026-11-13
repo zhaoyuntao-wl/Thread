@@ -24,8 +24,10 @@ export function renderPanel(store: ThreadStore, opts: PanelOptions): string {
   if (goals.length === 0) lines.push("  - （无进行中目标）");
   for (const goal of goals.slice(0, limit)) lines.push(`  - #${goal.id} ${clip(goal.text, 100)}`);
 
-  const active = store.getActiveDecisions(opts.sessionId);
-  const superseded = store.getDecisions(opts.sessionId, "superseded");
+  // 决策链与状态卡同口径：按项目合并（新会话也要看到同项目其他会话定的决策，
+  // 只看会话会显示"生效 0"而状态卡同时列 11 条，2026-11-14 实测）
+  const active = store.getActiveDecisionsMerged(opts.sessionId, opts.projectKey);
+  const superseded = store.getDecisionsMerged(opts.sessionId, "superseded", opts.projectKey);
   lines.push("", `决策链（生效 ${active.length} · 已被取代 ${superseded.length}）：`);
   if (active.length === 0) lines.push("  - （无生效决策）");
   for (const row of active.slice(0, limit)) lines.push(`  - #${row.id} ${clip(row.text, 100)}`);
@@ -34,8 +36,8 @@ export function renderPanel(store: ThreadStore, opts: PanelOptions): string {
     lines.push(`  - #${row.id} [superseded → ${to}] ${clip(row.text, 80)}`);
   }
 
-  const proposed = store.getDecisions(opts.sessionId, "proposed");
-  const pending = store.pendingCount({ sessionId: opts.sessionId });
+  const proposed = store.getDecisionsMerged(opts.sessionId, "proposed", opts.projectKey);
+  const pending = store.pendingCount({ sessionId: opts.sessionId, ...(opts.projectKey === undefined ? {} : { projectKey: opts.projectKey }) });
   lines.push("", `未决（候选 ${pending} · proposed ${proposed.length}）：`);
   if (pending === 0 && proposed.length === 0) lines.push("  - （无）");
   for (const row of proposed.slice(0, limit)) lines.push(`  - #${row.id} ${clip(row.text, 90)}（proposed）`);
