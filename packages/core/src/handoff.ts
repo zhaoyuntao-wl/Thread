@@ -130,3 +130,71 @@ export function parseBrief(json: string): HandoffBrief {
     conditions: raw.conditions ?? [],
   };
 }
+
+export interface ProposeHandoffInput {
+  toRole?: string;
+  toSession?: string;
+  goal?: string;
+  decisions?: string[];
+  open?: string[];
+  next?: string[];
+  artifacts?: string[];
+}
+
+// 模型侧提议（§1.4b.7 在线触发之一）：以当前会话状态为底，允许覆盖目标/决策/未决/下一步/产物。
+// 同一会话同目标已存在 pending 时复用，避免模型每轮重复提议造成重复交接。
+export function proposeHandoff(
+  store: ThreadStore,
+  sessionId: string,
+  input: ProposeHandoffInput,
+  opts: { projectKey?: string; taskId?: string; fromRole?: string } = {},
+): Handoff {
+  const base = buildCloseOutBrief(store, sessionId);
+  const goal = input.goal ?? base.goal;
+  const brief: HandoffBrief = {
+    goal,
+    decisions: input.decisions === undefined
+      ? base.decisions
+      : input.decisions.map((text, i) => ({ id: i + 1, text })),
+    open: input.open ?? base.open,
+    next: input.next ?? base.next,
+    artifacts: input.artifacts ?? base.artifacts,
+    conditions: base.conditions,
+  };
+  const projectKey = opts.projectKey ?? store.projectKey;
+  const duplicate = store
+    .listHandoffs({ projectKey, fromSession: sessionId, status: "pending", limit: 20 })
+    .find((row) => parseBrief(row.brief_json).goal === goal);
+  if (duplicate !== undefined) return duplicate;
+  return store.addHandoff({
+    projectKey,
+    taskId: opts.taskId,
+    fromSession: sessionId,
+    fromRole: opts.fromRole,
+    toSession: input.toSession,
+    toRole: input.toRole,
+    brief,
+  });
+}
+
+// 编排器动词（§1.4b.7）：只读取走该 task/role 的待投递交接，不改状态（ack 才推进）。
+export function nextHandoff(
+  store: ThreadStore,
+  opts: { taskId?: string; role?: string; projectKey?: string } = {},
+): { handoff: Handoff; brief: HandoffBrief } | null {
+  const rows = store.listHandoffs({
+    projectKey: opts.projectKey ?? store.projectKey,
+    ...(opts.taskId === undefined ? {} : { taskId: opts.taskId }),
+    ...(opts.role === undefined ? {} : { toRole: opts.role }),
+    status: "pending",
+    limit: 1,
+  });
+  const handoff = rows[0];
+  if (handoff === undefined) return null;
+  return { handoff, brief: parseBrief(handoff.brief_json) };
+}
+
+export function ackHandoff(store: ThreadStore, id: number): boolean {
+  return store.setHandoffStatus(id, "ack");
+}
+
