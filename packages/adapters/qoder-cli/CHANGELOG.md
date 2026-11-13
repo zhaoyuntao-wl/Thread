@@ -1,5 +1,12 @@
 # @thread/adapter-qoder-cli
 
+## 0.1.17
+
+### Patch Changes
+
+- Updated dependencies [30680d2]
+  - @thread-memory/core@1.3.0
+
 ## 0.1.16
 
 ### Patch Changes
