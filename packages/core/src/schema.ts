@@ -3,7 +3,7 @@ import type { EventKind } from "./events.js";
 import { segment } from "./segment.js";
 import { isIndexable } from "./governor.js";
 
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 // FTS 表 DDL（0-e 定案：jieba 预分词 shadow 列 body_seg，unicode61 按空格分词）。
 // contentless（content=''）：FTS 仅存分词索引，不映射 content 表列（body_seg 在 events 表不存在，
