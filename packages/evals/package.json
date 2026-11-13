@@ -18,7 +18,8 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "handoff-ab": "node dist/handoff/run.js"
   },
   "dependencies": {
     "@thread-memory/core": "workspace:*"
