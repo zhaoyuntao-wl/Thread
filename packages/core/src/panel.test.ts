@@ -52,4 +52,29 @@ describe("renderPanel", () => {
     expect(text).toContain("（无进行中目标）");
     expect(text).toContain("（无生效决策）");
   });
+
+  it("验收证据每个条目只显示最新一条", () => {
+    store.addEvidence({
+      projectKey: "panel-proj",
+      sessionId: "s1",
+      criterion: "lint",
+      command: "pnpm lint",
+      exit: 1,
+      passed: false,
+      envFingerprint: "test",
+    });
+    store.addEvidence({
+      projectKey: "panel-proj",
+      sessionId: "s1",
+      criterion: "lint",
+      command: "pnpm lint",
+      exit: 0,
+      passed: true,
+      envFingerprint: "test",
+    });
+    const text = renderPanel(store, { sessionId: "s1", projectKey: "panel-proj" });
+    const lintLines = text.split("\n").filter((line) => line.includes("lint exit="));
+    expect(lintLines).toHaveLength(1);
+    expect(lintLines[0]).toContain("✓");
+  });
 });

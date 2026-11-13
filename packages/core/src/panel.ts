@@ -52,7 +52,13 @@ export function renderPanel(store: ThreadStore, opts: PanelOptions): string {
       lines.push("  - （未登记验收条目）");
     } else {
       lines.push(`  - ${renderEvidenceLine(progress)}`);
-      for (const row of listEvidenceRows(store, { projectKey: opts.projectKey }).slice(0, limit)) {
+      // 每个验收条目只显示最新一条证据（历史保留在库中，避免面板被重跑记录淹没）
+      const rows = listEvidenceRows(store, { projectKey: opts.projectKey });
+      const latest = new Map<string, (typeof rows)[number]>();
+      for (const row of rows) {
+        if (!latest.has(row.criterion)) latest.set(row.criterion, row);
+      }
+      for (const row of [...latest.values()].slice(0, limit)) {
         const mark = row.passed === 1 ? "✓" : "✗";
         lines.push(`  - ${mark} ${row.criterion} exit=${row.exit ?? "?"} ${clip(row.command ?? "", 60)}`);
       }
