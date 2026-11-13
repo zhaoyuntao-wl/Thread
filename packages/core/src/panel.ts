@@ -64,6 +64,21 @@ export function renderPanel(store: ThreadStore, opts: PanelOptions): string {
       lines.push(`  - #${ask.id} ${clip(text, 70)}（call ${ask.call_id}）`);
     }
   }
+  // 已关闭的问题（settled/cancelled/timed_out）：回答后回看用，也是"采集是否生效"的验证入口
+  const closed = ["settled", "cancelled", "timed_out"].flatMap((status) =>
+    listOpenQuestions(store, {
+      ...(opts.projectKey === undefined ? {} : { projectKey: opts.projectKey }),
+      status: status as "settled" | "cancelled" | "timed_out",
+      limit,
+    }),
+  );
+  closed.sort((a, b) => b.id - a.id);
+  if (closed.length > 0) {
+    lines.push(`  已关闭 ${closed.length} 条（最近）：`);
+    for (const ask of closed.slice(0, limit)) {
+      lines.push(`  - #${ask.id} [${ask.status}] ${clip(ask.questions_json, 60)}`);
+    }
+  }
 
   lines.push("", "验收证据：");
   if (opts.projectKey === undefined) {

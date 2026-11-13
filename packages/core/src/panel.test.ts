@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderPanel } from "./panel.js";
 import { registerCriteria } from "./verification.js";
+import { recordOpenQuestion, settleOpenQuestion } from "./open-questions.js";
 import { proposeHandoff } from "./handoff.js";
 import { ThreadStore } from "./store.js";
 
@@ -78,5 +79,18 @@ describe("renderPanel", () => {
     const lintLines = text.split("\n").filter((line) => line.includes("lint exit="));
     expect(lintLines).toHaveLength(1);
     expect(lintLines[0]).toContain("✓");
+  });
+
+  it("已关闭的问题在面板可见（回答后回看）", () => {
+    const id = recordOpenQuestion(store, {
+      projectKey: "panel-proj",
+      sessionId: "s1",
+      callId: "call-9",
+      questions: [{ question: "选 A 还是 B？" }],
+    });
+    settleOpenQuestion(store, id, "settled", { answer: "A" });
+    const text = renderPanel(store, { sessionId: "s1", projectKey: "panel-proj" });
+    expect(text).toContain("已关闭 1 条");
+    expect(text).toContain("[settled]");
   });
 });
