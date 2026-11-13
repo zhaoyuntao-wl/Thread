@@ -204,6 +204,24 @@ export function ensureSchema(db: Database.Database, kind: SchemaKind): void {
       db.exec(`CREATE INDEX IF NOT EXISTS idx_todos_project ON todos(project_key, status)`);
       db.exec(`CREATE INDEX IF NOT EXISTS idx_todos_session ON todos(session_id, status)`);
 
+      db.exec(`CREATE TABLE IF NOT EXISTS handoffs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_key TEXT,
+        task_id TEXT,
+        from_session TEXT NOT NULL,
+        from_role TEXT,
+        to_session TEXT,
+        to_role TEXT,
+        brief_json TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TEXT NOT NULL,
+        delivered_at TEXT,
+        acked_at TEXT
+      );`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_handoffs_target ON handoffs(project_key, status)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_handoffs_task ON handoffs(task_id, status)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_handoffs_from ON handoffs(from_session)`);
+
       db.exec(`CREATE TABLE IF NOT EXISTS thread_meta (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,

@@ -1,5 +1,6 @@
 import type { ThreadStore } from "./store.js";
 import { applyScopePriority } from "./store.js";
+import { parseBrief } from "./handoff.js";
 import { buildProgressTimeline } from "./progress.js";
 import { MEMORY_BOUNDARY, suggestionsFrom } from "./metaknowledge.js";
 
@@ -140,6 +141,22 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
     lines.push(header);
   };
 
+  // 交接（§1.4b.3 P0-1）：有待投递的 handoff 就在卡片上披露条数，细节经 query_session_memory kind=handoff
+  if (!isolated) {
+    try {
+      const pendingHandoffs = store.listHandoffs({ projectKey, status: "pending", limit: 5 });
+      if (pendingHandoffs.length > 0) {
+        const latest = pendingHandoffs[0];
+        const brief = parseBrief(latest?.brief_json ?? "{}");
+        section(`交接（${pendingHandoffs.length} 条待投递）：`);
+        if (latest !== undefined) lines.push(`  - #${latest.id} ${clip(brief.goal, 120)}（来自 ${latest.from_session}）`);
+        lines.push("  细节用 query_session_memory kind=handoff 取；文档是产物层，交接只放指针与摘要。");
+      }
+    } catch {
+      // handoffs 表在旧库上可能尚未建立；卡片不因此失败
+    }
+  }
+
   // 决策反例（2026-08-26 用户定案）：最近一条被取代/废弃的决策入卡——卡片只列生效决策，
   // 模型看不到反例会自信重提旧案；与决策块同视图（merged + scope 优先级 + 隔离语义），取最近一条。
   const anti =
@@ -250,6 +267,12 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
           }`,
         );
         parts.push(`事件流共 ${store.countEvents(sessionId)} 条（query/grep 可查）`);
+        try {
+          const pendingHandoffs = store.listHandoffs({ projectKey, status: "pending", limit: 5 });
+          if (pendingHandoffs.length > 0) parts.push(`交接 ${pendingHandoffs.length} 条（kind=handoff 可查）`);
+        } catch {
+          // handoffs 表在旧库上可能尚未建立；卡片不因此失败
+        }
         return parts.join("；");
       } catch {
         return "";

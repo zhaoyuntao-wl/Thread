@@ -357,6 +357,21 @@ export interface SearchHit {
   score: number;
 }
 
+export interface Handoff {
+  id: number;
+  project_key: string | null;
+  task_id: string | null;
+  from_session: string;
+  from_role: string | null;
+  to_session: string | null;
+  to_role: string | null;
+  brief_json: string;
+  status: "pending" | "delivered" | "ack";
+  created_at: string;
+  delivered_at: string | null;
+  acked_at: string | null;
+}
+
 export class ThreadStore {
   readonly eventsDb: Database.Database;
   readonly structuredDb: Database.Database;
@@ -708,6 +723,86 @@ export class ThreadStore {
       .prepare(`SELECT COUNT(*) AS c FROM todos${where.length ? ` WHERE ${where.join(" AND ")}` : ""}`)
       .get(...params) as { c: number };
     return row.c;
+  }
+
+  addHandoff(input: {
+    projectKey?: string | null;
+    taskId?: string | null;
+    fromSession: string;
+    fromRole?: string | null;
+    toSession?: string | null;
+    toRole?: string | null;
+    brief: unknown;
+    ts?: string;
+  }): Handoff {
+    const row = this.structuredDb
+      .prepare(
+        `INSERT INTO handoffs (project_key, task_id, from_session, from_role, to_session, to_role, brief_json, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?) RETURNING *`,
+      )
+      .get(
+        input.projectKey ?? null,
+        input.taskId ?? null,
+        input.fromSession,
+        input.fromRole ?? null,
+        input.toSession ?? null,
+        input.toRole ?? null,
+        JSON.stringify(input.brief),
+        input.ts ?? new Date().toISOString(),
+      ) as Handoff;
+    return row;
+  }
+
+  listHandoffs(opts: {
+    projectKey?: string;
+    taskId?: string;
+    fromSession?: string;
+    toSession?: string;
+    toRole?: string;
+    status?: Handoff["status"];
+    limit?: number;
+  } = {}): Handoff[] {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (opts.projectKey) {
+      where.push("project_key = ?");
+      params.push(opts.projectKey);
+    }
+    if (opts.taskId) {
+      where.push("task_id = ?");
+      params.push(opts.taskId);
+    }
+    if (opts.fromSession) {
+      where.push("from_session = ?");
+      params.push(opts.fromSession);
+    }
+    if (opts.toSession) {
+      where.push("(to_session IS NULL OR to_session = ?)");
+      params.push(opts.toSession);
+    }
+    if (opts.toRole) {
+      where.push("(to_role IS NULL OR to_role = ?)");
+      params.push(opts.toRole);
+    }
+    if (opts.status) {
+      where.push("status = ?");
+      params.push(opts.status);
+    }
+    const sql = `SELECT * FROM handoffs${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY id DESC LIMIT ${opts.limit ?? 50}`;
+    return this.structuredDb.prepare(sql).all(...params) as Handoff[];
+  }
+
+  getHandoff(id: number): Handoff | undefined {
+    return this.structuredDb.prepare(`SELECT * FROM handoffs WHERE id = ?`).get(id) as Handoff | undefined;
+  }
+
+  setHandoffStatus(id: number, status: Handoff["status"], ts?: string): boolean {
+    const now = ts ?? new Date().toISOString();
+    const column = status === "delivered" ? "delivered_at" : status === "ack" ? "acked_at" : "created_at";
+    const info = this.structuredDb
+      .prepare(`UPDATE handoffs SET status = ?, ${column} = ? WHERE id = ?`)
+      .run(status, now, id);
+    return info.changes > 0;
   }
 
   updateTodoStatus(id: number, status: Todo["status"]): boolean {

@@ -1,4 +1,5 @@
 import { navigate, type NavigateOptions, type NavResult } from "./nav.js";
+import { parseBrief } from "./handoff.js";
 import { queryEvents, queryMemory, queryStructured } from "./query.js";
 import type { ThreadStore } from "./store.js";
 
@@ -46,6 +47,43 @@ export function runQueryTool(store: ThreadStore, args: QueryToolArgs): QueryTool
       limit: args.limit,
     });
     return { text: JSON.stringify(result, null, 2), session_isolation: isolation };
+  }
+
+  if (args.kind === "handoff") {
+    const id = args.target === undefined ? Number.NaN : Number(args.target);
+    if (Number.isFinite(id)) {
+      const handoff = store.getHandoff(id);
+      return {
+        text: JSON.stringify(
+          handoff === undefined ? { status: "not-found", id } : { ...handoff, brief: parseBrief(handoff.brief_json) },
+          null,
+          2,
+        ),
+        session_isolation: isolation,
+      };
+    }
+    const list = store.listHandoffs({ projectKey: store.projectKey, status: "pending", limit: args.limit ?? 10 });
+    return {
+      text: JSON.stringify(
+        {
+          status: "list",
+          count: list.length,
+          items: list.map((h) => ({
+            id: h.id,
+            task_id: h.task_id,
+            from_session: h.from_session,
+            from_role: h.from_role,
+            to_session: h.to_session,
+            to_role: h.to_role,
+            created_at: h.created_at,
+            brief: parseBrief(h.brief_json),
+          })),
+        },
+        null,
+        2,
+      ),
+      session_isolation: isolation,
+    };
   }
 
   if (!sessionId) {
