@@ -9,6 +9,9 @@ import {
   listEvidenceRows,
   renderEvidenceLine,
   verifyCriteria,
+  verifyRegistered,
+  criteriaFor,
+  registerCriteria,
 } from "./verification.js";
 import { ThreadStore } from "./store.js";
 
@@ -72,6 +75,30 @@ describe("门禁与进度", () => {
 
   it("未登记条目时门禁放行", () => {
     expect(checkCompletionGate(store, { projectKey: "ev-proj", criteria: [] }).allowed).toBe(true);
+  });
+});
+
+describe("自动重跑已登记条目", () => {
+  it("登记时保留命令，verifyRegistered 可自动重跑", () => {
+    registerCriteria(store, "ev-proj", [{ key: "unit-tests", command: "exit 0" }]);
+    const registered = criteriaFor(store, "ev-proj");
+    expect(registered[0].command).toBe("exit 0");
+    const report = verifyRegistered(store, { projectKey: "ev-proj", sessionId: "s1" });
+    expect(report?.passed).toBe(1);
+    expect(listEvidenceRows(store, { criterion: "unit-tests" })).toHaveLength(1);
+  });
+
+  it("没有登记命令时返回 undefined（不误报已证）", () => {
+    registerCriteria(store, "ev-proj", [{ key: "manual" }]);
+    expect(verifyRegistered(store, { projectKey: "ev-proj", sessionId: "s1" })).toBeUndefined();
+  });
+
+  it("重复登记同一键时命令被更新而非叠加", () => {
+    registerCriteria(store, "ev-proj", [{ key: "lint", command: "exit 1" }]);
+    registerCriteria(store, "ev-proj", [{ key: "lint", command: "exit 0" }]);
+    const registered = criteriaFor(store, "ev-proj");
+    expect(registered).toHaveLength(1);
+    expect(registered[0].command).toBe("exit 0");
   });
 });
 

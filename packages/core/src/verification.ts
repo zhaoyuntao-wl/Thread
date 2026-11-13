@@ -47,17 +47,15 @@ function gitCommit(cwd: string | undefined): string | null {
 // 不接受"模型说通过了"；缺命令的条目记为缺环境，不算通过。
 const criteriaKey = (projectKey: string): string => `criteria:${projectKey}`;
 
-// 验收条目登记：verify 时自动登记条目键（去重保序），卡片/面板据此计算进度。
+// 验收条目登记：保留命令（自动重跑要用），verify 时自动登记条目键（去重保序，后来的命令覆盖旧空命令）。
 export function registerCriteria(store: ThreadStore, projectKey: string, criteria: Criterion[]): Criterion[] {
   const existing = criteriaFor(store, projectKey);
-  const keys = new Set(existing.map((c) => c.key));
-  const merged = [...existing];
+  const byKey = new Map(existing.map((c) => [c.key, c] as const));
   for (const criterion of criteria) {
-    if (!keys.has(criterion.key)) {
-      merged.push({ key: criterion.key });
-      keys.add(criterion.key);
-    }
+    const prev = byKey.get(criterion.key);
+    byKey.set(criterion.key, { key: criterion.key, ...(criterion.command !== undefined ? { command: criterion.command } : prev?.command === undefined ? {} : { command: prev.command }), ...(criterion.cwd !== undefined ? { cwd: criterion.cwd } : prev?.cwd === undefined ? {} : { cwd: prev.cwd }) });
   }
+  const merged = [...byKey.values()];
   store.setMeta(criteriaKey(projectKey), JSON.stringify(merged));
   return merged;
 }
@@ -66,11 +64,27 @@ export function criteriaFor(store: ThreadStore, projectKey: string): Criterion[]
   const raw = store.getMeta(criteriaKey(projectKey));
   if (raw === undefined) return [];
   try {
-    const parsed = JSON.parse(raw) as Array<{ key?: unknown }>;
-    return parsed.filter((c) => typeof c.key === "string").map((c) => ({ key: String(c.key) }));
+    const parsed = JSON.parse(raw) as Array<{ key?: unknown; command?: unknown; cwd?: unknown }>;
+    return parsed
+      .filter((c) => typeof c.key === "string")
+      .map((c) => ({
+        key: String(c.key),
+        ...(typeof c.command === "string" ? { command: c.command } : {}),
+        ...(typeof c.cwd === "string" ? { cwd: c.cwd } : {}),
+      }));
   } catch {
     return [];
   }
+}
+
+// 自动重跑已登记条目：离线模式下没有"人记得跑 verify"，交接/完成前由系统主动取证。
+export function verifyRegistered(
+  store: ThreadStore,
+  opts: { projectKey: string; sessionId: string; cwd?: string },
+): VerifyReport | undefined {
+  const criteria = criteriaFor(store, opts.projectKey).filter((c) => c.command !== undefined);
+  if (criteria.length === 0) return undefined;
+  return verifyCriteria(store, { projectKey: opts.projectKey, sessionId: opts.sessionId, criteria, ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }) });
 }
 
 export function progressFor(store: ThreadStore, projectKey: string): { proven: number; total: number; missing: string[] } {
