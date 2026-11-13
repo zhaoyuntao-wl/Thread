@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { MAX_BODY_CHARS, truncateBody } from "./events.js";
 import type { EventKind, SessionEvent } from "./events.js";
 import { assertTransition } from "./state.js";
+import { checkCompletionGate, criteriaFor } from "./verification.js";
 import type { DecisionStatus, GoalStatus } from "./state.js";
 import { ensureSchema, EVENTS_FTS_DDL, EVENTS_FTS_TRI_DDL } from "./schema.js";
 import { segment, segmentQuery } from "./segment.js";
@@ -1130,6 +1131,13 @@ export class ThreadStore {
   }
 
   updateGoalStatus(sessionId: string, goalId: number, status: GoalStatus): Goal | undefined {
+    // 完成门禁（P0-2）：验收条目缺 passing 证据时拒绝标完成（返回 undefined，状态不变）。
+    // 只对 completed 生效；unknown/abandoned 不受证据约束。
+    if (status === "completed" && this.projectKey !== undefined) {
+      const criteria = criteriaFor(this, this.projectKey);
+      const gate = checkCompletionGate(this, { projectKey: this.projectKey, criteria });
+      if (!gate.allowed) return undefined;
+    }
     const goal = this.structuredDb
       .prepare(
         `UPDATE goals SET status = ?, updated_at = ? WHERE id = ? AND session_id = ? RETURNING *`,
