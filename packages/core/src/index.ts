@@ -11,6 +11,7 @@ export * from "./store.js";
 export * from "./assets.js";
 export * from "./closing.js";
 export * from "./handoff.js";
+export * from "./panel.js";
 export * from "./behavior-contract.js";
 export * from "./delta.js";
 export * from "./nav.js";
