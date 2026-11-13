@@ -1,9 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
-import { hashProjectKey } from "@thread-memory/core";
 import { type RunSample, type arm, renderReport, scoreAnswer, summarize } from "./score.js";
 import { HANDOFF_TASK, TASK_ID, seedArm } from "./seed.js";
 
@@ -37,30 +36,47 @@ function prepareHome(): void {
   writeFileSync(patchPath, patched, "utf8");
 }
 
-function inspect(projectKey: string): { queries: number; delivered: number } {
-  const out = { queries: 0, delivered: 0 };
-  try {
-    const db = new Database(join(runRoot, "structured.db"), { readonly: true });
-    out.delivered = (db.prepare("SELECT COUNT(*) AS c FROM handoffs WHERE status IN ('delivered','ack')").get() as { c: number }).c;
-    db.close();
-  } catch (err) {
-    console.error("inspect structured failed:", (err as Error).message);
+function findFiles(dir: string, suffix: string, acc: string[] = []): string[] {
+  for (const name of readdirSync(dir)) {
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) findFiles(path, suffix, acc);
+    else if (name.endsWith(suffix)) acc.push(path);
   }
-  const eventsPath = join(runRoot, "projects", hashProjectKey(projectKey), "events.db");
-  try {
-    const db = new Database(eventsPath, { readonly: true });
-    out.queries = (
-      db.prepare("SELECT COUNT(*) AS c FROM events WHERE kind='tool_call' AND body LIKE '%query_session_memory%'").get() as { c: number }
-    ).c;
-    db.close();
-  } catch (err) {
-    console.error("inspect events failed:", eventsPath, (err as Error).message);
+  return acc;
+}
+
+// 不推断项目键：直接扫临时根里插件写下的库，避免「键算错 → 计数全 0」这类静默错误。
+function inspect(): { queries: number; delivered: number } {
+  const out = { queries: 0, delivered: 0 };
+  for (const dbPath of findFiles(runRoot, "structured.db")) {
+    try {
+      const db = new Database(dbPath, { readonly: true });
+      out.delivered += (
+        db.prepare("SELECT COUNT(*) AS c FROM handoffs WHERE status IN ('delivered','ack')").get() as { c: number }
+      ).c;
+      db.close();
+    } catch (err) {
+      console.error("inspect structured failed:", dbPath, (err as Error).message);
+    }
+  }
+  for (const dbPath of findFiles(runRoot, "events.db")) {
+    try {
+      const db = new Database(dbPath, { readonly: true });
+      out.queries += (
+        db.prepare("SELECT COUNT(*) AS c FROM events WHERE kind='tool_call' AND body LIKE '%query_session_memory%'").get() as {
+          c: number;
+        }
+      ).c;
+      db.close();
+    } catch (err) {
+      console.error("inspect events failed:", dbPath, (err as Error).message);
+    }
   }
   return out;
 }
 
 function runOnce(a: arm, index: number): RunSample {
-  const { projectKey, workspace } = seedArm(runRoot, a);
+  const { workspace } = seedArm(runRoot, a);
   const started = Date.now();
   const res = spawnSync("dsh", ["--profile", profile, `"${HANDOFF_TASK}"`], {
     cwd: workspace,
@@ -71,7 +87,6 @@ function runOnce(a: arm, index: number): RunSample {
       ...process.env,
       DSH_HOME: home,
       THREAD_ROOT: runRoot,
-      // 显式钉住会话工作区：插件与种子必须落在同一个项目桶，否则交接寻址失败
       THREAD_CWD: workspace,
       THREAD_TASK_ID: TASK_ID,
       THREAD_ROLE: "dev",
@@ -79,10 +94,10 @@ function runOnce(a: arm, index: number): RunSample {
     },
   });
   const text = `${res.stdout ?? ""}\n${res.stderr ?? ""}`;
-  const { queries, delivered } = inspect(projectKey);
+  const { queries, delivered } = inspect();
   const sample: RunSample = { arm: a, ...scoreAnswer(text), queries, delivered, seconds: Math.round((Date.now() - started) / 1000) };
   console.log(
-    `${a}#${index} 召回=${sample.recall} 策展=${sample.curated} 查询=${queries} 交付=${delivered} ${sample.seconds}s (exit=${String(res.status)})`,
+    `${a}#${index} recall=${sample.recall} curated=${sample.curated} queries=${queries} delivered=${delivered} ${sample.seconds}s exit=${String(res.status)}`,
   );
   return sample;
 }
@@ -95,15 +110,18 @@ function main(): void {
   for (let i = 1; i <= K; i++) {
     for (const a of arms) samples.push(runOnce(a, i));
   }
-  // 隔离自检（2026-11-13 实测教训）：空记忆臂不可能知道种子里的字串。
-  // 命中即说明运行没有落在预期根上（工作区在仓库内 → 项目键可能塌到仓库桶），此时不得出报表。
+  // 隔离自检：空记忆臂不可能知道种子里的字串；命中即说明运行没落在隔离根上，不出报表。
   const leaked = samples.filter((s) => s.arm === "none" && (s.curated || s.stale));
   if (leaked.length > 0) {
-    console.error(
-      `[handoff-ab] 隔离自检失败：none 臂 ${leaked.length} 次命中了种子字串，说明运行未落在隔离根（检查 THREAD_ROOT / THREAD_CWD / DSH_HOME，以及工作区不要放在 git 仓库内）。`,
-    );
+    console.error(`[handoff-ab] isolation self-check failed: none arm hit seed strings ${leaked.length}/${K}.`);
     writeFileSync(join(outRoot, "handoff-ab.invalid.json"), JSON.stringify({ k: K, samples }, null, 2));
     process.exit(2);
+  }
+  // 计数自检：push 臂必然产生「已投递」交接；为 0 说明库扫描没接上，此时出的表不可信。
+  if (samples.filter((s) => s.arm === "push" && s.delivered > 0).length === 0) {
+    console.error("[handoff-ab] counter self-check failed: push arm delivered=0 across all runs (DB scan not wired).");
+    writeFileSync(join(outRoot, "handoff-ab.invalid.json"), JSON.stringify({ k: K, samples }, null, 2));
+    process.exit(3);
   }
   const summary = summarize(samples);
   const report = renderReport(summary, K);

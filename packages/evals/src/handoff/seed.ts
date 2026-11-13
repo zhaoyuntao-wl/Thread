@@ -1,4 +1,5 @@
 import { mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ThreadStore, deriveProjectKey, proposeHandoff } from "@thread-memory/core";
 import type { arm } from "./score.js";
@@ -16,7 +17,11 @@ export const HANDOFF_TASK =
 
 export function seedArm(root: string, a: arm): SeedResult {
   rmSync(root, { recursive: true, force: true });
-  const workspace = join(root, "ws");
+  mkdirSync(root, { recursive: true });
+  // 工作区必须在 git 仓库之外：项目键按"规范化 git 根"解析，放在仓库内会塌成仓库桶，
+  // 三臂共用同一桶 → 隔离失效（2026-11-13 实测）。
+  const workspace = join(tmpdir(), `thread-handoff-ws-${a}`);
+  rmSync(workspace, { recursive: true, force: true });
   mkdirSync(workspace, { recursive: true });
   const projectKey = deriveProjectKey(workspace);
   if (a === "none") return { projectKey, workspace };
