@@ -55,6 +55,8 @@ node dist/handoff/run.js --k=5
 
 ## 状态（2026-11-13）
 
-- 评分核心（`score.ts`）与报表已带单测，确定性可回归；
-- **live 三臂运行仍有隔离问题未收口**：`none` 臂偶发命中种子字串（说明某次运行没落在隔离根上，疑似工作区位于 git 仓库内导致项目键塌到仓库桶，或复制 profile 的 `THREAD_ROOT` 未生效）。runner 已加隔离自检：`none` 臂命中即写 `handoff-ab.invalid.json` 并 `exit 2`，不出报表；
-- 因此**当前对外文档里的实测数字来自一次性脚本（`.trial/ab-handoff.mjs`）的那次运行，不是本 harness 产出的**；在隔离问题收口前，不要引用本 harness 的数字。
+- 评分核心（`score.ts`）、runner、报表已全部可跑，并带 6 项单测；
+- **隔离已收口**：工作区不再放在仓库内（否则项目键按 git 根塌成仓库桶，三臂共用同一桶），改放 `%TEMP%/thread-handoff-ws-<arm>` 并用 `THREAD_CWD` 双钉；
+- **计数已接通**：用 core 的 `ThreadStore` 打开临时根里的库（不再自带 sqlite 绑定，避免版本不一致导致的静默 0）；
+- 两道自检会拒绝出报表：`none` 臂命中种子字串（`exit 2`）、`push` 臂投递全 0（`exit 3`），并写 `handoff-ab.invalid.json`；
+- k=3 实测（2026-11-13）：召回 push 3/3 · memory 3/3 · none 0/3；策展 push **3/3** · memory 0/3 · none 0/3；平均查询 1 / 6 / 4；投递 3/3 / 0/3 / 0/3——与早前一次性脚本 k=5 的方向与量级一致。
