@@ -177,24 +177,25 @@ export function proposeHandoff(
   });
 }
 
-// 编排器动词（§1.4b.7）：只读取走该 task/role 的待投递交接，不改状态（ack 才推进）。
+// 编排器动词（§1.4b.7）：原子领取一条待投递交接（领取即 delivered），ack 才推进到终态。
+// 两个 worker 并发调用不会拿到同一条：claim 是单条 UPDATE … RETURNING。
 export function nextHandoff(
   store: ThreadStore,
   opts: { taskId?: string; role?: string; projectKey?: string } = {},
 ): { handoff: Handoff; brief: HandoffBrief } | null {
-  const rows = store.listHandoffs({
+  const handoff = store.claimHandoff({
     projectKey: opts.projectKey ?? store.projectKey,
     ...(opts.taskId === undefined ? {} : { taskId: opts.taskId }),
     ...(opts.role === undefined ? {} : { toRole: opts.role }),
-    status: "pending",
-    limit: 1,
   });
-  const handoff = rows[0];
   if (handoff === undefined) return null;
   return { handoff, brief: parseBrief(handoff.brief_json) };
 }
 
 export function ackHandoff(store: ThreadStore, id: number): boolean {
+  const row = store.getHandoff(id);
+  if (row === undefined) return false;
+  if (row.status === "ack") return true;
   return store.setHandoffStatus(id, "ack");
 }
 

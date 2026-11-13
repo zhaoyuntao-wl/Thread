@@ -796,6 +796,40 @@ export class ThreadStore {
     return this.structuredDb.prepare(`SELECT * FROM handoffs WHERE id = ?`).get(id) as Handoff | undefined;
   }
 
+  // 原子领取：单条 UPDATE … RETURNING 把「选中最旧 pending」与「推进为 delivered」合成一步，
+  // 避免两个 worker 并发 handoff_next 取到同一条交接。
+  claimHandoff(opts: {
+    projectKey?: string;
+    taskId?: string;
+    toRole?: string;
+    toSession?: string;
+    ts?: string;
+  } = {}): Handoff | undefined {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (opts.projectKey) {
+      where.push("project_key = ?");
+      params.push(opts.projectKey);
+    }
+    if (opts.taskId) {
+      where.push("task_id = ?");
+      params.push(opts.taskId);
+    }
+    if (opts.toSession) {
+      where.push("(to_session IS NULL OR to_session = ?)");
+      params.push(opts.toSession);
+    }
+    if (opts.toRole) {
+      where.push("(to_role IS NULL OR to_role = ?)");
+      params.push(opts.toRole);
+    }
+    where.push("status = 'pending'");
+    const sql = `UPDATE handoffs SET status = 'delivered', delivered_at = ?
+      WHERE id = (SELECT id FROM handoffs WHERE ${where.join(" AND ")} ORDER BY id LIMIT 1)
+      RETURNING *`;
+    return this.structuredDb.prepare(sql).get(opts.ts ?? new Date().toISOString(), ...params) as Handoff | undefined;
+  }
+
   setHandoffStatus(id: number, status: Handoff["status"], ts?: string): boolean {
     const now = ts ?? new Date().toISOString();
     const column = status === "delivered" ? "delivered_at" : status === "ack" ? "acked_at" : "created_at";
