@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderPanel } from "./panel.js";
+import { registerCriteria } from "./verification.js";
 import { proposeHandoff } from "./handoff.js";
 import { ThreadStore } from "./store.js";
 
@@ -54,6 +55,7 @@ describe("renderPanel", () => {
   });
 
   it("验收证据每个条目只显示最新一条", () => {
+    registerCriteria(store, "panel-proj", [{ key: "lint" }]);
     store.addEvidence({
       projectKey: "panel-proj",
       sessionId: "s1",
