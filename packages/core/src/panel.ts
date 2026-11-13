@@ -16,7 +16,8 @@ export function renderPanel(store: ThreadStore, opts: PanelOptions): string {
   const limit = opts.limit ?? 5;
   const lines: string[] = ["[Thread 面板]"];
 
-  const goals = store.getActiveGoals(opts.sessionId);
+  // 目标取会话 + 项目级合并：北极星这类目标由别的会话登记，只看会话会显示"无目标"（2026-11-13 实测）
+  const goals = opts.projectKey === undefined ? store.getActiveGoals(opts.sessionId) : store.getActiveGoalsMerged(opts.sessionId, opts.projectKey);
   lines.push("", `目标（${goals.length}）：`);
   if (goals.length === 0) lines.push("  - （无进行中目标）");
   for (const goal of goals.slice(0, limit)) lines.push(`  - #${goal.id} ${clip(goal.text, 100)}`);
