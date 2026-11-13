@@ -1,4 +1,5 @@
 import type { Goal, StructuredWriteOptions, ThreadStore } from "./store.js";
+import { checkCompletionGate, criteriaFor } from "./verification.js";
 
 export interface TurnInput {
   user_msg?: string;
@@ -16,6 +17,8 @@ export interface TurnAnalysis {
 
 export interface AppliedTurn {
   goals: Goal[];
+  /** 完成门禁拦下的目标：缺哪些验收证据（供上层回告用户，不静默） */
+  blockedCompletions?: Array<{ goalId: number; missing: string[] }>;
 }
 
 // 2026-08-21 结构通道化（用户定案）：决策/偏好/确认/撤销/取代的自然语言判定全部停用——
@@ -161,7 +164,16 @@ export function applyAnalysis(
     if (input.user_msg) {
       const completed = detectGoalCompletion(input.user_msg, store.getActiveGoalsMerged(sessionId, opts.projectKey));
       if (completed) {
-        store.updateGoalStatus(completed.session_id, completed.id, "completed");
+        // 门禁拒绝时回告（不静默）：把缺哪几条证据带出去，由上层注入给模型/用户。
+        const criteria = opts.projectKey === undefined ? [] : criteriaFor(store, opts.projectKey);
+        const gate = checkCompletionGate(store, {
+          ...(opts.projectKey === undefined ? {} : { projectKey: opts.projectKey }),
+          criteria,
+        });
+        const updated = store.updateGoalStatus(completed.session_id, completed.id, "completed");
+        if (updated === undefined && !gate.allowed) {
+          (applied.blockedCompletions ??= []).push({ goalId: completed.id, missing: gate.missing });
+        }
       }
     }
     return applied;
