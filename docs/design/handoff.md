@@ -29,7 +29,7 @@ env: { THREAD_TASK_ID: taskId, THREAD_ROLE: "dev" }
 
 // 2) 需要时领取交接（MCP 工具，返回结构化 brief）
 const next = await mcp.callTool({ name: "handoff_next", arguments: { task_id: taskId, role: "dev" } });
-// → { id, status, brief: { goal, decisions[], open[], next[], artifacts[], conditions[] } }
+// → { id, status, brief: { goal, decisions[], open[], next[], artifacts[], conditions[], acceptance? } }
 
 await mcp.callTool({ name: "handoff_ack", arguments: { id: next.id } });
 ```
@@ -42,7 +42,8 @@ await mcp.callTool({ name: "handoff_ack", arguments: { id: next.id } });
 - **幂等**：同一会话重复生成/提议同一目标的交接只保留一条；`handoff_ack` 重复确认仍成功；
 - **不阻塞主路径**：交接相关失败一律 fail-open，不影响对话；
 - **作用域隔离**：按项目键过滤，跨项目不会串；
-- **只放指针与摘要**：`artifacts` 存文件路径，正文留在文档——Thread 是索引与契约层，文档是产物层。
+- **只放指针与摘要**：`artifacts` 存文件路径，正文留在文档——Thread 是索引与契约层，文档是产物层；
+- **带验收状态**：项目登记过验收条目时，brief 多一行 `acceptance`（如 `验收 1/2 已证（缺：lint）`）；会话关闭前会**自动重跑**已登记条目，所以接手方看到的是刚测出的结论，而非上一轮的旧判断。
 
 ## 实测价值（2026-11-13，三臂对照）
 
