@@ -2,6 +2,7 @@ import type { ThreadStore } from "./store.js";
 import { queryEvents } from "./query.js";
 import { lastInjection } from "./receipt.js";
 import { listEvidenceRows, progressFor, renderEvidenceLine } from "./verification.js";
+import { listOpenQuestions } from "./open-questions.js";
 
 export interface PanelOptions {
   sessionId: string;
@@ -42,6 +43,27 @@ export function renderPanel(store: ThreadStore, opts: PanelOptions): string {
   const receipt = lastInjection(store, opts.sessionId);
   lines.push("", "本轮注入：");
   lines.push(receipt === undefined ? "  - （本会话还没有注入记录）" : `  - ${receipt.ts} [${receipt.kind}] ${clip(receipt.summary, 120)}`);
+
+  lines.push("", "待答问题：");
+  const asks = listOpenQuestions(store, {
+    ...(opts.projectKey === undefined ? {} : { projectKey: opts.projectKey }),
+    status: "open",
+    limit,
+  });
+  if (asks.length === 0) {
+    lines.push("  - （无）");
+  } else {
+    for (const ask of asks) {
+      let text = "";
+      try {
+        const parsed = JSON.parse(ask.questions_json) as Array<{ question?: string }>;
+        text = parsed[0]?.question ?? "";
+      } catch {
+        text = "";
+      }
+      lines.push(`  - #${ask.id} ${clip(text, 70)}（call ${ask.call_id}）`);
+    }
+  }
 
   lines.push("", "验收证据：");
   if (opts.projectKey === undefined) {

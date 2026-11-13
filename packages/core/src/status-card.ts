@@ -3,6 +3,7 @@ import { applyScopePriority } from "./store.js";
 import { parseBrief } from "./handoff.js";
 import { buildProgressTimeline } from "./progress.js";
 import { progressFor, renderEvidenceLine } from "./verification.js";
+import { openQuestionCount, renderQuestionLine } from "./open-questions.js";
 import { MEMORY_BOUNDARY, suggestionsFrom } from "./metaknowledge.js";
 
 function shortSession(sessionId: string): string {
@@ -352,6 +353,11 @@ export function buildStatusCard(store: ThreadStore, opts: BuildStatusCardOptions
       if (progress.total > 0) {
         if (lines.length > 1) lines.push("");
         lines.push(renderEvidenceLine(progress));
+      }
+      const openCount = openQuestionCount(store, { projectKey: opts.projectKey });
+      if (openCount > 0) {
+        if (lines.length > 1) lines.push("");
+        lines.push(renderQuestionLine(openCount));
       }
     }
   } catch {

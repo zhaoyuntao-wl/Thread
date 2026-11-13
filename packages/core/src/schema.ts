@@ -3,7 +3,7 @@ import type { EventKind } from "./events.js";
 import { segment } from "./segment.js";
 import { isIndexable } from "./governor.js";
 
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 // FTS 表 DDL（0-e 定案：jieba 预分词 shadow 列 body_seg，unicode61 按空格分词）。
 // contentless（content=''）：FTS 仅存分词索引，不映射 content 表列（body_seg 在 events 表不存在，
@@ -236,6 +236,22 @@ export function ensureSchema(db: Database.Database, kind: SchemaKind): void {
     )`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_evidence_project ON evidence(project_key, criterion)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_evidence_session ON evidence(session_id)`);
+
+    db.exec(`CREATE TABLE IF NOT EXISTS open_questions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_key TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      call_id TEXT NOT NULL,
+      questions_json TEXT NOT NULL DEFAULT '[]',
+      timed INTEGER NOT NULL DEFAULT 0,
+      deadline TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      answers_json TEXT,
+      created_at TEXT NOT NULL,
+      resolved_at TEXT
+    )`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_questions_project ON open_questions(project_key, status)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_questions_session ON open_questions(session_id, status)`);
 
       db.exec(`CREATE TABLE IF NOT EXISTS thread_meta (
         key TEXT PRIMARY KEY,

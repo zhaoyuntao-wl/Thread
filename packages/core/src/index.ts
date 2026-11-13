@@ -21,6 +21,7 @@ export * from "./light-confirm.js";
 export * from "./query.js";
 export * from "./evidence.js";
 export * from "./verification.js";
+export * from "./open-questions.js";
 export * from "./metaknowledge.js";
 export * from "./governor.js";
 export * from "./project-key.js";

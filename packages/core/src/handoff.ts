@@ -1,4 +1,5 @@
 import type { ThreadStore, Handoff } from "./store.js";
+import { progressFor, renderEvidenceLine } from "./verification.js";
 
 export interface HandoffBrief {
   goal: string;
@@ -7,6 +8,7 @@ export interface HandoffBrief {
   next: string[];
   artifacts: string[];
   conditions: string[];
+  acceptance?: string;
 }
 
 export interface CloseOutOptions {
@@ -35,6 +37,9 @@ export function buildCloseOutBrief(
   const todos = store.listTodos({ sessionId, status: "pending" });
   const assets = store.listAssets({ sessionId });
   const pending = store.pendingCount({ sessionId });
+  // 验收证据进交接（P0-2）：接手方一眼看到哪些验收条目还没证，避免"以为做完了"
+  const acceptanceProgress = store.projectKey === undefined ? { proven: 0, total: 0, missing: [] } : progressFor(store, store.projectKey);
+  const acceptanceField = acceptanceProgress.total > 0 ? { acceptance: renderEvidenceLine(acceptanceProgress) } : {};
 
   const brief: HandoffBrief = {
     goal: goals[0]?.text ?? decisions[0]?.text ?? "（无进行中目标）",
@@ -53,6 +58,7 @@ export function buildCloseOutBrief(
       .filter((d) => d.text.includes("条件："))
       .map((d) => `#${d.id} ${d.text}`)
       .slice(0, 2),
+    ...acceptanceField,
   };
   return brief;
 }
@@ -109,6 +115,7 @@ export function renderBrief(brief: HandoffBrief, handoffId?: number): string {
     lines.push(`决策（${brief.decisions.length}）：${brief.decisions.map((d) => `#${d.id} ${d.text}`).join("；")}`);
   }
   if (brief.open.length > 0) lines.push(`未决：${brief.open.join("；")}`);
+  if (brief.acceptance !== undefined) lines.push(`验收：${brief.acceptance}`);
   if (brief.next.length > 0) lines.push(`下一步：${brief.next.join("；")}`);
   if (brief.artifacts.length > 0) lines.push(`产物：${brief.artifacts.join(", ")}`);
   lines.push(
