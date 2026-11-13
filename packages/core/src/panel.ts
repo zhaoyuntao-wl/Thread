@@ -1,5 +1,6 @@
 import type { ThreadStore } from "./store.js";
 import { queryEvents } from "./query.js";
+import { lastInjection } from "./receipt.js";
 
 export interface PanelOptions {
   sessionId: string;
@@ -35,6 +36,10 @@ export function renderPanel(store: ThreadStore, opts: PanelOptions): string {
   lines.push("", `未决（候选 ${pending} · proposed ${proposed.length}）：`);
   if (pending === 0 && proposed.length === 0) lines.push("  - （无）");
   for (const row of proposed.slice(0, limit)) lines.push(`  - #${row.id} ${clip(row.text, 90)}（proposed）`);
+
+  const receipt = lastInjection(store, opts.sessionId);
+  lines.push("", "本轮注入：");
+  lines.push(receipt === undefined ? "  - （本会话还没有注入记录）" : `  - ${receipt.ts} [${receipt.kind}] ${clip(receipt.summary, 120)}`);
 
   const handoffs = store.listHandoffs({ status: undefined, limit: limit * 2 });
   const live = handoffs.filter((h) => h.status !== "ack");
